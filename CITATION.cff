@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: Calibrated Order-Randomized Rosenblatt Tests
+message: If you use this software or the accompanying results, please cite the paper.
+type: software
+authors:
+  - family-names: Pournaderi
+    given-names: Mehrdad
+    affiliation: Mofid Securities
+    email: m.pournaderi@emofid.com
+abstract: >-
+  Replication code and data for order-randomized Rosenblatt tests: applying the
+  Rosenblatt transform under many random coordinate orderings and combining the
+  resulting evidence with dependence-robust merging rules, calibrated by a
+  re-estimating parametric bootstrap.
+keywords:
+  - Rosenblatt transformation
+  - goodness-of-fit
+  - e-values
+  - parametric bootstrap
+  - false discovery rate
+license: MIT
