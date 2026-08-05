@@ -1,6 +1,6 @@
 # Calibrated Order-Randomized Rosenblatt Tests
 
-Replication code, data and manuscript for the paper *Calibrated Order-Randomized Rosenblatt Tests*.
+Replication code and data for the paper *Calibrated Order-Randomized Rosenblatt Tests*.
 
 The Rosenblatt transformation reduces the hypothesis $H_0:\mathbf X\sim F$ to a test of uniformity,
 but requires an arbitrary ordering of the coordinates, which under dependence materially affects
@@ -15,7 +15,6 @@ code/       experiments (exp_*), supporting checks (check_*), figures (fig*), ap
 data/       daily FRED H.10 exchange rates used by the application
 results/    saved Monte-Carlo output, one .npz archive per experiment
 figures/    figures as they appear in the paper
-paper/      LaTeX sources (elsarticle), bibliography and compiled PDFs
 ```
 
 ## Reproducing the results
@@ -84,21 +83,34 @@ figures regenerate byte-for-byte from the archives in `results/`.
 `data/` holds nine daily exchange-rate series (euro, yen, sterling, Canadian dollar, Swiss franc,
 Australian and New Zealand dollars, Swedish and Norwegian kronor) against the U.S. dollar, from the
 Federal Reserve's H.10 release via [FRED](https://fred.stlouisfed.org), retrieved 15 July 2026 and
-covering 2015–2025. `code/fetch_fx_data.sh` re-downloads them. Series identifiers and quotation
-conventions are listed in `paper/supplementary.tex`. The data are public-domain U.S. government
-works.
+covering 2015–2025. `code/fetch_fx_data.sh` re-downloads them.
 
-## Building the paper
+The nine series and their quotation conventions:
 
-```bash
-cd paper
-pdflatex paper && bibtex paper && pdflatex paper && pdflatex paper
-```
+| Series | Currency | Quotation |
+|---|---|---|
+| `DEXUSEU` | Euro | USD per unit |
+| `DEXJPUS` | Japanese yen | units per USD |
+| `DEXUSUK` | British pound | USD per unit |
+| `DEXCAUS` | Canadian dollar | units per USD |
+| `DEXSZUS` | Swiss franc | units per USD |
+| `DEXUSAL` | Australian dollar | USD per unit |
+| `DEXUSNZ` | New Zealand dollar | USD per unit |
+| `DEXSDUS` | Swedish krona | units per USD |
+| `DEXNOUS` | Norwegian krone | units per USD |
 
-`paper_anon.tex` is the double-anonymized version prepared for review; `title_page.tex` carries the
-author details, acknowledgments and declarations that the anonymized manuscript omits.
+All series are converted to USD per foreign unit before differencing, so a positive return always
+means dollar depreciation. Days on which any series is unquoted are dropped, leaving 2,747 daily
+log-return vectors spanning 5 January 2015 to 31 December 2025. The model is refitted at the start
+of each calendar year on the preceding year's returns, and every day of the new year is tested out
+of sample. The data are public-domain U.S. government works.
+
+## Paper
+
+The manuscript is not included in this repository. Section and figure numbers referenced above
+follow the published version.
 
 ## License
 
-Code and manuscript are released under the MIT License (see `LICENSE`). The exchange-rate data are
-U.S. government works and are not subject to copyright.
+The code is released under the MIT License (see `LICENSE`). The exchange-rate data are U.S.
+government works and are not subject to copyright.
