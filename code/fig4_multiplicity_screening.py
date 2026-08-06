@@ -26,7 +26,7 @@ for k in keys:
 B.axhline(q, color="0.3", lw=1.1, ls="--")
 B.text(1.75, q + 0.015, "target $q=0.10$", color="0.3", fontsize=8.5)
 B.set_xticks(x); B.set_xticklabels(xt); B.set_ylim(-0.02, 0.6)
-B.set_title("B. Bootstrap-calibrated: every method\nbelow target (same scale as A)")
+B.set_title("B. Bootstrap-calibrated: FDR at or near target\n(same scale as A)")
 B.set_xlabel(r"$N_{\mathrm{tr}}$"); B.set_ylabel("realized FDR")
 
 Cx = ax[2]

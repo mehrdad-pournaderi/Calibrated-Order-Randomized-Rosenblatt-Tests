@@ -33,13 +33,28 @@ cd code
 | `exp_base_statistic.py` | one- versus two-sided base statistics | §4, §5, Figure 1 |
 | `exp_calibration_pipeline.py` | naive vs calibrated size, then power, in one setting | Figure 2 |
 | `exp_departure_shape.py` | sparse versus dense departures at equal energy | Figure 3 |
-| `exp_multiplicity_screening.py` | FDR and power when hypotheses fail heterogeneously | Figure 4, §7 |
+| `exp_multiplicity_screening.py` | FDR and power when hypotheses fail heterogeneously | Figure 4, §7.1 |
+| `merge_multiplicity_chunks.py` | pools the chunks written above into one archive | Figure 4, §7.1 |
 | `exp_training_size.py` | behaviour as the reference sample shrinks | §6.1 |
-| `exp_number_of_orderings.py` | calibrated power versus the number of orderings $M$ | §6.3 |
+| `exp_number_of_orderings.py` | calibrated power versus the number of orderings $M$ | (background) |
+| `exp_threshold_dependence.py` | why the combiner ranking inverts between a single test and a screen | §7.2 |
 | `exp_sparsity_path.py` | power along the sparse-to-dense path | (background) |
+| `exp_conformal_comparison.py` | comparison with conformal novelty detection and AdaDetect | Table 1, §7.3 |
+| `merge_conformal_chunks.py` | pools the chunks written above into one archive per reference-sample size | Table 1, §7.3 |
+| `exp_conformal_novelty_density.py` | how the crossover with AdaDetect moves with the null proportion | Table 2, §7.3 |
 
 `exp_departure_shape.py` takes a mode argument: `alt` (sparse vs dense), `rho` (dependence sweep),
 `n` (dimension sweep).
+
+Three experiments run in seeded chunks and are pooled afterwards, because their realized false
+discovery proportion is coarse when non-nulls are rare. `exp_multiplicity_screening.py` takes a
+replication count and a seed; `exp_conformal_comparison.py` takes a reference-sample size, a
+replication count and a seed; `exp_conformal_novelty_density.py` takes a null proportion (`80`,
+`90` or `95`), a replication count and a seed. Each writes one `chunk_*.npz` per seed, which
+`merge_multiplicity_chunks.py` and `merge_conformal_chunks.py` then pool into the archives in
+`results/`. The chunks store raw per-replication proportions, so pooling is exact and the reported
+Monte-Carlo standard errors are exact too. The two conformal scripts are the only ones that need
+`scikit-learn`.
 
 **Supporting checks** — small scripts behind claims made in the text:
 
@@ -76,7 +91,10 @@ figures regenerate byte-for-byte from the archives in `results/`.
 - **In the multiplicity layer, the bootstrap replicate count must satisfy $B > N/q$.** A bootstrap
   $p$-value cannot fall below $1/(B+1)$, while Benjamini–Hochberg needs values as small as $q/N$;
   with too small a $B$ the attainable power of every method is capped by calibration granularity
-  rather than by the test.
+  rather than by the test. The same constraint binds on the conformal calibration set in
+  `exp_conformal_comparison.py`, which is why that script uses larger reference samples than the
+  rest: a conformal $p$-value is a multiple of $1/(\ell+1)$, so too small an $\ell$ makes every
+  conformal method reject nothing at all.
 
 ## Data
 

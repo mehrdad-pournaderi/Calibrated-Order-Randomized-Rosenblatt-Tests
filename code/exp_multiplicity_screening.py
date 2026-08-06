@@ -13,12 +13,15 @@ import numpy as np
 from scipy import stats
 from scipy.special import logsumexp
 
-rng = np.random.default_rng(1414)
+import sys
+_seed = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+rng = np.random.default_rng(1414 + 1000 * _seed)
 Q = 0.10; LOG2 = np.log(2.0)
 N, M, NCP, RHO = 20, 12, 20.0, 0.5
 TAUS = np.array([1.0, 2.0, 3.0])
-NUNITS, PI0 = 200, 0.8
-R, B, BCHUNK = 20, 2500, 500
+NUNITS, PI0 = 200, 0.95     # sparse screen, matching the regime of Sec. 7.2
+R, B, BCHUNK = 25, 2500, 500  # replications are pooled across seeded chunks; with only
+                              # 10 non-nulls the realized FDP is very variable
 NTR_GRID = [80, 160, 0]
 idx = np.arange(1, N + 1); ridge = 1e-3 * np.eye(N)
 
@@ -76,12 +79,15 @@ def ebh(e, q):
 
 PSMALL = ["single", "pmerge", "bonf", "sym"]; ELARGE = ["eavg", "chi2"]
 ALLK = PSMALL + ELARGE
-OUT = {m: {k: {"fdr": [], "pow": []} for k in ALLK} for m in ("naive", "cal")}
+if len(sys.argv) > 1:
+    R = int(sys.argv[1])
+# raw per-replication proportions, so that chunks pool exactly and standard errors are exact
+RAW = {m: {k: {"fdr": [], "pow": []} for k in ALLK} for m in ("naive", "cal")}
 
 print("Heterogeneous screening (n=%d rho=%.1f M=%d ncp=%.0f q=%.2f, %d units, pi0=%.1f,"
       " half-sparse/half-dense, R=%d B=%d)" % (N, RHO, M, NCP, Q, NUNITS, PI0, R, B))
 for Ntr in NTR_GRID:
-    acc = {m: {k: {"fdr": 0., "pow": 0.} for k in ALLK} for m in ("naive", "cal")}
+    acc = {m: {k: {"fdr": [], "pow": []} for k in ALLK} for m in ("naive", "cal")}
     for _ in range(R):
         perms = np.stack([rng.permutation(N) for _ in range(M)])
         Shat = S if Ntr == 0 else (lambda X: X.T @ X / Ntr + ridge)(draw(np.zeros(N), S, Ntr))
@@ -123,20 +129,21 @@ for Ntr in NTR_GRID:
         for mlab, rejd in (("naive", naive_rej), ("cal", cal_rej)):
             for k in ALLK:
                 r = rejd[k]
-                acc[mlab][k]["fdr"] += np.sum(r & ~truth_alt) / max(r.sum(), 1)
-                acc[mlab][k]["pow"] += np.sum(r & truth_alt) / n_alt
+                acc[mlab][k]["fdr"].append(np.sum(r & ~truth_alt) / max(r.sum(), 1))
+                acc[mlab][k]["pow"].append(np.sum(r & truth_alt) / n_alt)
     lab = "known" if Ntr == 0 else str(Ntr)
     print("  N_tr=%s" % lab)
     for k in ALLK:
         for mlab in ("naive", "cal"):
-            OUT[mlab][k]["fdr"].append(acc[mlab][k]["fdr"] / R)
-            OUT[mlab][k]["pow"].append(acc[mlab][k]["pow"] / R)
+            RAW[mlab][k]["fdr"].append(acc[mlab][k]["fdr"])
+            RAW[mlab][k]["pow"].append(acc[mlab][k]["pow"])
         print("    %-7s naive[FDR=%.3f pow=%.3f]  calibrated[FDR=%.3f pow=%.3f]"
-              % (k, OUT["naive"][k]["fdr"][-1], OUT["naive"][k]["pow"][-1],
-                 OUT["cal"][k]["fdr"][-1], OUT["cal"][k]["pow"][-1]))
+              % (k, np.mean(acc["naive"][k]["fdr"]), np.mean(acc["naive"][k]["pow"]),
+                 np.mean(acc["cal"][k]["fdr"]), np.mean(acc["cal"][k]["pow"])))
 
-np.savez("results_multiplicity_screening.npz", Ntr=np.array([g if g else 100000 for g in NTR_GRID]),
-         **{f"{m}_{k}_{s}": np.array(OUT[m][k][s])
+fn = "chunk_multiplicity_s%d.npz" % _seed
+np.savez(fn, Ntr=np.array([g if g else 100000 for g in NTR_GRID]), R=R,
+         **{f"{m}_{k}_{s}": np.array(RAW[m][k][s])       # shape (n_Ntr, R)
             for m in ("naive", "cal") for k in ALLK for s in ("fdr", "pow")},
          q=Q, n=N, M=M, ncp=NCP, rho=RHO, nunits=NUNITS, pi0=PI0, B=B)
-print("saved sim14.npz")
+print("saved " + fn)
