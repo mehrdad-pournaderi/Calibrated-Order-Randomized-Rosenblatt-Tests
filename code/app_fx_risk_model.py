@@ -23,6 +23,16 @@ v2 (review credit: GPT Astra):
     as in the real pipeline (previously only the covariance was re-estimated);
   - the day-level paired-gap standard error uses a Newey-West (Bartlett) estimator to account
     for serial dependence.
+v3 (review credit: GPT Astra, round 2):
+  - TWO calibration targets are now run and stored separately, because they are different nulls
+    and need different simulations:
+      (a) ESTIMATED-POPULATION null (rows, gap_*): the re-estimating bootstrap above, i.e.
+          Procedure 1 with mean and covariance re-estimated inside every replicate;
+      (b) ISSUED-FORECAST null H0,t: X_t | F_{t-1} ~ N(mu_hat_t, Sigma_hat_t) (rows_fc, gap_fc_*):
+          the parameters are FIXED at the issued values, so the calibration vectors are drawn
+          from N(mu_hat, Sigma_hat) and evaluated with the same fixed whitening as the observed
+          days (exact Monte-Carlo null; no re-estimation).
+  - merger summaries used for calibration are uncapped (mean and min of per-order p-values).
 """
 import glob
 import numpy as np
@@ -30,6 +40,8 @@ from scipy import stats
 from scipy.special import logsumexp
 
 rng = np.random.default_rng(20260715)
+rng_fc = np.random.default_rng(20260924)   # separate stream for the forecast-null calibration (v3),
+                                            # so the estimated-population run reproduces the earlier one
 ALPHA, Q_EBH = 0.05, 0.10
 M, B = 12, 999
 TAUS = np.array([1.0, 2.0, 3.0])
@@ -76,8 +88,8 @@ def simes2(Z):
     return (n * np.sort(p2, axis=-1) / idx).min(-1)
 
 
-def rand_perms(k, m):
-    return np.argsort(rng.random((k, m, n)), axis=-1)
+def rand_perms(k, m, gen=None):
+    return np.argsort((gen or rng).random((k, m, n)), axis=-1)
 
 
 def order_stats(Z):
@@ -86,15 +98,15 @@ def order_stats(Z):
     terms = np.stack([-0.5 * t * t + logcosh(t * Z) for t in TAUS])
     logE = logsumexp(terms, axis=(0, -1)) - (np.log(n) + np.log(len(TAUS)))
     return dict(single=Ps[..., 0],
-                pmerge=np.minimum(2 * Ps.mean(-1), 1.0),
-                bonf=np.minimum(M * Ps.min(-1), 1.0),
+                pmerge=2 * Ps.mean(-1),      # uncapped merger summaries (v3): the capped
+                bonf=M * Ps.min(-1),         # p-values min{1,.} are for reporting only
                 eavg=logsumexp(logE, -1) - np.log(M))          # log e-value
 
 
-def all_stats(V, Linv, Sinv, W):
+def all_stats(V, Linv, Sinv, W, gen=None):
     """V: (k, n) centered vectors; Linv: (n,n) chol-inverse of Sigma_hat (identity ordering);
     fresh M orderings per row. Exchangeability does NOT hold here, so permute Sigma too."""
-    P = rand_perms(V.shape[0], M)                              # (k,M,n)
+    P = rand_perms(V.shape[0], M, gen)                         # (k,M,n)
     st = {}
     # per-row, per-ordering cholesky of permuted Sigma_hat: batch over unique perms is
     # overkill at k<=260, M=12 -> loop days in chunks
@@ -135,6 +147,15 @@ def calibrate(Shat, Ntr):
     return {k: np.sort(v) for k, v in boot.items()}
 
 
+def calibrate_forecast(Shat, Linv, Sinv, W):
+    """Issued-forecast null: parameters fixed at the issued (mu_hat, Sigma_hat); the calibration
+    vectors are exact draws from the null, centred exactly, and whitened by the SAME fixed
+    Sigma_hat as the observed days. Returns sorted statistics."""
+    Vc = rng_fc.standard_normal((B, n)) @ np.linalg.cholesky(Shat).T
+    boot = all_stats(Vc, Linv, Sinv, W, gen=rng_fc)
+    return {k: np.sort(v) for k, v in boot.items()}
+
+
 def mc_low(sorted_boot, obs):
     return 1 + np.searchsorted(sorted_boot, obs, side='right') <= ALPHA * (B + 1)
 
@@ -146,6 +167,7 @@ def mc_high(sorted_boot, obs):
 # ---------------- run per year ----------------
 KEYS = ["single", "pmerge", "bonf", "eavg", "chi2", "sym"]
 rows, gaps, logE_all, dates_all, rej_flags = [], [], [], [], []
+rows_fc, gaps_fc = [], []                            # issued-forecast calibration
 for y in range(2016, 2026):
     tr = ret[years == y - 1]; te = ret[years == y]
     dte = [t for t, yy in zip(rdates, years) if yy == y]
@@ -164,6 +186,15 @@ for y in range(2016, 2026):
     logE_all.append(st["eavg"]); dates_all.extend(dte); rej_flags.append(rej["eavg"])
     print("  %d (T=%d): " % (y, len(te)) +
           "  ".join("%s=%.3f" % (k, rej[k].mean()) for k in KEYS))
+    # ---- issued-forecast null: fixed parameters, exact Monte-Carlo calibration
+    bfc = calibrate_forecast(Shat, Linv, Sinv, W)
+    rfc = {k: mc_low(bfc[k], st[k]) for k in ("single", "pmerge", "bonf", "sym")}
+    rfc["eavg"] = mc_high(bfc["eavg"], st["eavg"])
+    rfc["chi2"] = mc_high(bfc["chi2"], st["chi2"])
+    rows_fc.append((y, len(te)) + tuple(float(rfc[k].mean()) for k in KEYS))
+    gaps_fc.append(rfc["eavg"].astype(float) - rfc["single"].astype(float))
+    print("        forecast-null calibration: " +
+          "  ".join("%s=%.3f" % (k, rfc[k].mean()) for k in KEYS))
 
 gap = np.concatenate(gaps)
 
@@ -185,6 +216,8 @@ se_iid = gap.std(ddof=1) / np.sqrt(len(gap))
 se_nw = nw_se(gap)
 print("\npaired day-level gap (e-avg - single): %.4f +/- %.4f NW (iid se %.4f; T=%d days, t=%.1f)"
       % (gap.mean(), se_nw, se_iid, len(gap), gap.mean() / se_nw))
+gap_fc = np.concatenate(gaps_fc); se_fc = nw_se(gap_fc)
+print("  under the issued-forecast calibration: %.4f +/- %.4f NW" % (gap_fc.mean(), se_fc))
 
 # ---------------- naive e-BH across all days ----------------
 logE = np.concatenate(logE_all); E = np.exp(logE); N = len(E)
@@ -200,6 +233,7 @@ for i in top:
 
 np.savez("results_fx_application.npz",
          rows=np.array(rows), keys=np.array(KEYS),
+         rows_fc=np.array(rows_fc), gap_fc_mean=gap_fc.mean(), gap_fc_se=se_fc,
          gap_mean=gap.mean(), gap_se=se_nw, gap_se_iid=se_iid,
          logE=logE, dates=np.array(dates_all),
          rej_eavg=np.concatenate(rej_flags),

@@ -3,6 +3,12 @@ APPLES-TO-APPLES under estimated F: parametric-bootstrap-calibrate every method 
 size alpha, then compare POWER.  The bootstrap re-estimates Sigma INSIDE each replicate
 (double bootstrap) so the calibration absorbs the same estimation noise the real test has.
 
+v3: calibration statistics are the UNCAPPED merger summaries mean_m P_m and M*min_m P_m
+ (the capped p-values min{1,.} are monotone in these below the cap and identical for every
+ decision here; capping only matters when it creates ties at 1, i.e. when more than a 1-alpha
+ fraction of null draws hit the cap, which happens at large M under weak dependence).
+ Naive decisions are unchanged: min{1,x} < alpha iff x < alpha.
+
 CORRECTED VERSION (v2):
  - fresh random orderings are drawn in EVERY realization, so the 'single' baseline
    estimates the EXPECTED power of an arbitrarily chosen ordering (the paper's
@@ -74,12 +80,12 @@ def order_methods(Z):                           # Z (...,M,n) -> dict of (...,) 
     M = Psimes.shape[-1]
     pfish = stats.chi2.sf(-2.0 * np.log(np.maximum(p2, 1e-300)).sum(-1), 2 * N)  # (...,M)
     return dict(single=Psimes[..., 0],
-                pmerge=np.minimum(2 * Psimes.mean(-1), 1.0),
-                bonf=np.minimum(M * Psimes.min(-1), 1.0),
+                pmerge=2 * Psimes.mean(-1),          # uncapped (v3); min{1,.} only for reporting
+                bonf=M * Psimes.min(-1),
                 eavg=np.exp(logsumexp(logE, -1) - np.log(M)),
                 fisher=pfish[..., 0],
-                pmerge_f=np.minimum(2 * pfish.mean(-1), 1.0),
-                bonf_f=np.minimum(M * pfish.min(-1), 1.0))
+                pmerge_f=2 * pfish.mean(-1),
+                bonf_f=M * pfish.min(-1))
 
 
 PKEYS = ["single", "pmerge", "bonf", "sym", "fisher", "pmerge_f", "bonf_f"]  # small = extreme

@@ -10,6 +10,11 @@ CORRECTED VERSION (v3):
  - v3: decisions by RANK-BASED Monte-Carlo p-values, p = (1+#{T*_b at least as extreme})/(B+1),
    reject iff p <= alpha. Interpolated np.quantile thresholds are anti-conservative at finite B:
    expected rejection ((B-1)a+1)/(B+1) = 0.0545 at B=199, a=0.05. (Review credit: GPT Astra.)
+ - v4: calibration statistics are the UNCAPPED merger summaries mean_m P_m and M*min_m P_m
+ (the capped p-values min{1,.} are monotone in these below the cap and identical for every
+ decision here; capping only matters when it creates ties at 1, i.e. when more than a 1-alpha
+ fraction of null draws hit the cap, which happens at large M under weak dependence).
+ Naive decisions are unchanged: min{1,x} < alpha iff x < alpha.
  - v3: adds 'e1', the CALIBRATED SINGLE-ORDERING mixture e-value, so that pooled-vs-single for
    the e-value path compares like with like (same base statistic, aggregation isolated).
 
@@ -68,13 +73,13 @@ def order_methods(Z, n):
     logE = logsumexp(terms, axis=(0, -1)) - (np.log(n) + np.log(len(TAUS)))
     pfish = stats.chi2.sf(-2.0 * np.log(np.maximum(p2, 1e-300)).sum(-1), 2 * n)
     return dict(single=Psimes[..., 0],
-                pmerge=np.minimum(2 * Psimes.mean(-1), 1.0),
-                bonf=np.minimum(M * Psimes.min(-1), 1.0),
+                pmerge=2 * Psimes.mean(-1),          # uncapped (v4); min{1,.} only for reporting
+                bonf=M * Psimes.min(-1),
                 eavg=np.exp(logsumexp(logE, -1) - np.log(M)),
                 e1=np.exp(logE[..., 0]),
                 fisher=pfish[..., 0],
-                pmerge_f=np.minimum(2 * pfish.mean(-1), 1.0),
-                bonf_f=np.minimum(M * pfish.min(-1), 1.0))
+                pmerge_f=2 * pfish.mean(-1),
+                bonf_f=M * pfish.min(-1))
 
 
 def draw(mu, S, k, rng): return mu + rng.standard_normal((k, S.shape[0])) @ np.linalg.cholesky(S).T

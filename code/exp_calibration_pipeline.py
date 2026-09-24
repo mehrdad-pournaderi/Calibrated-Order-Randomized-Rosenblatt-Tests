@@ -4,6 +4,11 @@ n=20, rho=0.5 equicorrelated, k=2 same-sign shifted coordinates, ncp=12,
 N_tr in {4n, 8n, known}. For every method: naive size, calibrated size,
 calibrated power. Pooled p-merge dominates all order-invariant references here.
 
+v3: calibration statistics are the UNCAPPED merger summaries mean_m P_m and M*min_m P_m
+ (the capped p-values min{1,.} are monotone in these below the cap and identical for every
+ decision here; capping only matters when it creates ties at 1, i.e. when more than a 1-alpha
+ fraction of null draws hit the cap, which happens at large M under weak dependence).
+ Naive decisions are unchanged: min{1,x} < alpha iff x < alpha.
 v2: rank-based Monte-Carlo p-value decisions, p = (1+#{T* at least as extreme})/(B+1) <= alpha
     (interpolated quantiles are anti-conservative at finite B: ((B-1)a+1)/(B+1) = 0.0545 at
     B=199); adds 'e1', the calibrated single-ordering mixture e-value, to isolate aggregation
@@ -46,8 +51,8 @@ def om(Z):
     terms = np.stack([-0.5 * t * t + logcosh(t * Z) for t in TAUS])
     logE = logsumexp(terms, axis=(0, -1)) - (np.log(N) + np.log(len(TAUS)))
     pf = stats.chi2.sf(-2 * np.log(np.maximum(p2, 1e-300)).sum(-1), 2 * N)
-    return dict(single=Ps[..., 0], pmerge=np.minimum(2 * Ps.mean(-1), 1.0),
-                bonf=np.minimum(Mn * Ps.min(-1), 1.0),
+    return dict(single=Ps[..., 0], pmerge=2 * Ps.mean(-1),   # uncapped (v3)
+                bonf=Mn * Ps.min(-1),
                 eavg=np.exp(logsumexp(logE, -1) - np.log(Mn)),
                 e1=np.exp(logE[..., 0]), fisher=pf[..., 0])
 

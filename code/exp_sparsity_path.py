@@ -4,6 +4,8 @@ energy matched at ncp=12 for every k, known F, exact MC calibration.
 Shows where pooling beats the symmetric-root test: sym is competitive only at k=1 and
 degrades monotonically toward its dense collapse, while pooled e-avg dominates at every k.
 chi2 is constant in k -- the empirical face of orbit-flatness (Prop. 1).
+Calibration uses the uncapped merger summaries (mean and min of the per-order p-values); the
+capped nominal p-values would create ties at 1 under a rank rule when the cap binds.
 """
 import numpy as np
 from scipy import stats
@@ -37,8 +39,8 @@ def stats_all(X):
     Ps = simes2(Z)
     terms = np.stack([-0.5 * t * t + logcosh(t * Z) for t in TAUS])
     logE = logsumexp(terms, axis=(0, -1)) - (np.log(N) + np.log(len(TAUS)))
-    return dict(single=Ps[..., 0], pmerge=np.minimum(2 * Ps.mean(-1), 1.0),
-                bonf=np.minimum(M * Ps.min(-1), 1.0),
+    return dict(single=Ps[..., 0], pmerge=2 * Ps.mean(-1),   # uncapped summaries for calibration
+                bonf=M * Ps.min(-1),
                 eavg=logsumexp(logE, -1) - np.log(M))
 
 

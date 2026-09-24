@@ -64,9 +64,14 @@ for rho in (0.6, 0.0):
     Xa = mu + rng.standard_normal((REPS, N)) @ L.T
     Pn, lEn = per_order(Xn, perms, Linv)
     Pa, lEa = per_order(Xa, perms, Linv)
-    # NOTE: calibrate on the UNCAPPED statistics (mean p, min p, sum log e). Capping at 1
-    # puts an atom at the boundary that destroys the null quantile once M is large; the
-    # uncapped forms are monotone equivalents, so calibrated power is unaffected.
+    # NOTE: calibrate on the UNCAPPED statistics (mean p, min p, sum log e). The capped
+    # nominal p-values min{1, M min p} and min{1, 2 mean p} put an atom at 1; under a
+    # nonrandomized rank rule an observation on the atom can never reject, so the calibrated
+    # test's rejection probability is bounded by the null mass below the cap once that mass
+    # falls under alpha (at rho=0, M=128: P(128 P < 1) = 1/128, so the capped Bonferroni test
+    # could reject at most 0.8% of the time). The uncapped summaries
+    # are the statistics Procedure 1 is applied to throughout the paper; capping is reserved
+    # for reporting a nominal merged p-value.
     res = {k: [] for k in ("pmerge", "bonf", "eavg")}
     for M in MGRID:
         res["pmerge"].append(cal_power(Pn[:, :M].mean(1), Pa[:, :M].mean(1)))

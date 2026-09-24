@@ -169,6 +169,13 @@ check("Fisher remark: sparse, Simes minus Fisher combiner, min (0.04)", min(sp),
 check("Fisher remark: sparse, Simes minus Fisher combiner, max (0.26)", max(sp), 0.26, 2)
 check("Fisher remark: dense known, p-merge(Fisher)", a["cpw_known_pmerge_f"][D], 0.623)
 check("Fisher remark: dense known, p-merge(Simes)", a["cpw_known_pmerge"][D], 0.577)
+check("Fisher remark: dense 4n, p-merge(Fisher)", a["cpw_pmerge_f"][D], 0.502)
+check("Fisher remark: dense 4n, p-merge(Simes)", a["cpw_pmerge"][D], 0.415)
+check("Fisher remark: dense 4n, bonf(Fisher)", a["cpw_bonf_f"][D], 0.498)
+check("Fisher remark: dense 4n, bonf(Simes)", a["cpw_bonf"][D], 0.421)
+sp_ok = all(d[pre + k][i] > d[pre + k + "_f"][i] for d, cfg in ((a, [0]), (r, [0, 1, 2]), (n, [0, 1, 2])) for pre in ("cpw_", "cpw_known_") for i in cfg for k in ("pmerge", "bonf"))
+fails += (not sp_ok)
+print("  %-62s %s" % ("§3.2: Simes base wins every sparse config, both training sizes", "PASS" if sp_ok else "FAIL"))
 ok = a["cpw_known_pmerge_f"][D] > a["cpw_known_pmerge"][D] and a["cpw_known_bonf"][D] > a["cpw_known_bonf_f"][D]
 fails += (not ok)
 print("  %-62s %s" % ("Fisher remark: dense known, only p-merge(Fisher) leads its Simes twin", "PASS" if ok else "FAIL"))
@@ -213,6 +220,41 @@ ok = 4.5e12 <= min(covid.values()) and max(covid.values()) < 2e14   # 5.0e12 pri
 fails += (not ok)
 print("  %-62s %s %s" % ("COVID days 2020-03-18/20/23 in 5e12..1e14", {k: "%.1e" % v for k, v in covid.items()}, "PASS" if ok else "FAIL"))
 intex("2020-03-18/20/23 ($5\\times10^{12}$--$10^{14}$)")
+
+# ---------------------------------------------------------------- §8 issued-forecast calibration (24 Sep)
+print("§8 issued-forecast calibration (rows_fc)")
+rfc = f["rows_fc"]
+yfc = lambda y: rfc[rfc[:, 0] == y][0]
+for y, q in [(2017, 0.06), (2021, 0.03), (2023, 0.08), (2024, 0.05)]:
+    check("forecast-null eavg rate %d (calm)" % y, yfc(y)[col("eavg")], q, 2)
+for y, q in [(2020, 0.32), (2022, 0.55), (2025, 0.17), (2016, 0.14)]:
+    check("forecast-null eavg rate %d (stress)" % y, yfc(y)[col("eavg")], q, 2)
+fc_ok = f["rows_fc"][:, col("eavg")].min() >= 0 and bool(np.all(f["rows_fc"][:, col("eavg")] >= f["rows"][:, col("eavg")] - 1e-12))
+fails += (not fc_ok)
+print("  %-62s %s" % ("§8: forecast-null eavg rate >= estimated-population rate every year", "PASS" if fc_ok else "FAIL"))
+check("forecast-null day-level gap", float(f["gap_fc_mean"]), 0.004, 3)
+check("forecast-null gap NW se", float(f["gap_fc_se"]), 0.004, 3)
+intex("$0.06$, $0.03$, $0.08$, $0.05$ under the issued-forecast calibration")
+intex("$32\\%$, $55\\%$, $17\\%$ and $14\\%$")
+
+# ---------------------------------------------------------------- §7.2 threshold sweep (results_threshold_dependence.npz)
+t = np.load("results_threshold_dependence.npz", allow_pickle=True)
+print("§7.2 threshold sweep (results_threshold_dependence.npz; alphas %s)" % list(t["alphas"]))
+check("fig2 case: p-merge at 0.05", t["fig2_pmerge"][0], 0.510)
+check("fig2 case: bonf at 0.05", t["fig2_bonf"][0], 0.487)
+check("fig2 case: p-merge at 0.0005", t["fig2_pmerge"][-1], 0.045)
+check("fig2 case: bonf at 0.0005", t["fig2_bonf"][-1], 0.067)
+ok = (1 - t["fig2_pmerge"][-1] / t["fig2_pmerge"][0]) > 0.9 and abs((1 - t["fig2_bonf"][-1] / t["fig2_bonf"][0]) - 6 / 7) < 0.02
+fails += (not ok)
+print("  %-62s %.3f, %.3f %s" % ("fig2 case: losses > 9/10 and ~6/7", 1 - t["fig2_pmerge"][-1] / t["fig2_pmerge"][0], 1 - t["fig2_bonf"][-1] / t["fig2_bonf"][0], "PASS" if ok else "FAIL"))
+check("dense case: p-merge 0.05", t["dense_pmerge"][0], 0.757)
+check("dense case: p-merge 0.0005", t["dense_pmerge"][-1], 0.095)
+check("dense case: bonf 0.05", t["dense_bonf"][0], 0.892)
+check("dense case: bonf 0.0005", t["dense_bonf"][-1], 0.397)
+check("dense case: gap at 0.05", t["dense_bonf"][0] - t["dense_pmerge"][0], 0.135)
+check("dense case: gap at 0.0005", t["dense_bonf"][-1] - t["dense_pmerge"][-1], 0.302)
+intex("($0.510$ against $0.487$)")
+intex("($0.045$ against $0.067$)")
 
 print("\nRESULT: %d failure(s)" % fails)
 sys.exit(1 if fails else 0)

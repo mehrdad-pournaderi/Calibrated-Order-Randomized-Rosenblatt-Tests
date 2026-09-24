@@ -44,11 +44,17 @@ lab = {"single": "single random order", "eavg": "e-value avg (M=12)",
 x = np.arange(len(yy))
 for j, k in enumerate(sel):
     B.bar(x + (j - 1.5) * w, rows[:, 2 + keys.index(k)], w, color=col[k], label=lab[k])
+# issued-forecast null (parameters fixed at the issued values): e-value average, as markers
+if "rows_fc" in d.files:
+    rfc = d["rows_fc"]
+    B.plot(x + (sel.index("eavg") - 1.5) * w, rfc[:, 2 + keys.index("eavg")], "D", ms=5,
+           mfc="white", mec="#08519c", mew=1.4,
+           label="e-value avg, issued-forecast calibration")
 B.axhline(0.05, color="red", lw=1.3, ls="--")
 B.text(-0.45, 0.06, "α=0.05", color="red", fontsize=9)
 B.set_xticks(x); B.set_xticklabels(yy)
-B.set_title("B. Calibrated per-day rejection rate by year: ≈ nominal in calm years, "
-            "large in stress years (2016, 2020, 2022, 2025)")
+B.set_title("B. Calibrated per-day rejection rate by year (bars: estimated-population null, "
+            "re-estimating bootstrap; diamonds: issued-forecast null)")
 B.set_ylabel("fraction of days rejected"); B.legend(fontsize=8.5, loc="upper left")
 
 fig.tight_layout(rect=[0, 0, 1, 0.965])

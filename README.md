@@ -99,7 +99,13 @@ figures regenerate byte-for-byte from the archives in `results/`.
   aggregation from the choice of base statistic, whereas `eavg − single` also changes the base
   statistic (Simes p-value to mixture e-value). In the FX application the bootstrap re-estimates the
   mean as well as the covariance inside each replicate, and the day-level gap standard error is
-  Newey–West.
+  Newey–West, and two calibrations are stored side by side: the re-estimating bootstrap for the
+  estimated-population null (`rows`, `gap_*`) and exact simulation from the issued forecast with
+  fixed parameters (`rows_fc`, `gap_fc_*`), each on its own random stream.
+- **Calibration acts on uncapped merger summaries.** The single-test scripts and the application
+  hand Procedure 1 the uncapped `mean_m P_m` and `M·min_m P_m` (the capped nominal p-values put an
+  atom at 1 that a rank rule cannot break; at M=12 this never binds, but at large M under weak
+  dependence it does — see the note in `exp_number_of_orderings.py`).
 - **In the multiplicity layer, the bootstrap replicate count should satisfy $B > N/q$.** A bootstrap
   $p$-value cannot fall below $1/(B+1)$, while Benjamini–Hochberg's smallest threshold is $q/N$;
   with too small a $B$ the attainable power of every method is capped by calibration granularity
