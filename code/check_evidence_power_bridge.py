@@ -1,9 +1,12 @@
 """Two bridges from expected log-evidence to fixed-level power (Remark 3 of the paper).
 
-(i)  Repeated observations.  With T independent observations whose e-values are multiplied,
-     log of the product has mean T*mu, so the number of observations needed to cross
-     t = log(1/alpha) is asymptotically t/mu: two procedures need sample sizes in inverse
-     ratio to their expected log-evidence.  Unconditional -- it needs only mu finite.
+(i)  Repeated observations.  With T i.i.d. observations whose e-values are multiplied,
+     log of the product has mean T*mu, so -- provided mu > 0 and E|log E| < infinity -- the
+     number of observations needed to reach a fixed target power tends to t/mu as
+     alpha -> 0 (t = log(1/alpha) -> infinity): two procedures need sample sizes in inverse
+     ratio to their expected log-evidence.  The sample sizes reported below are interpolated
+     linearly between consecutive integers T (see T_for_power), so the "observed T ratio" is
+     a ratio of interpolated values.
 
 (ii) A single observation.  Cantelli gives
          P(log E >= t) >= (mu - t)_+^2 / (s^2 + (mu - t)^2),

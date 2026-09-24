@@ -108,15 +108,15 @@ figures regenerate byte-for-byte from the archives in `results/`.
   dependence it does — see the note in `exp_number_of_orderings.py`).
 - **In the multiplicity layer, the bootstrap replicate count should satisfy $B > N/q$.** A bootstrap
   $p$-value cannot fall below $1/(B+1)$, while Benjamini–Hochberg's smallest threshold is $q/N$;
-  with too small a $B$ the attainable power of every method is capped by calibration granularity
-  rather than by the test (the condition is sufficient for full BH resolution, not necessary for
-  making some rejections). All calibrated decisions use rank-based Monte-Carlo p-values,
+  with too small a $B$ the bottom rungs of the BH ladder become unreachable (the condition is
+  sufficient for full BH resolution, not necessary for making rejections at the higher rungs). All calibrated decisions use rank-based Monte-Carlo p-values,
   (1 + #{T*_b at least as extreme as T_obs})/(B+1), never interpolated quantiles, which are
   anti-conservative at finite B (expected rejection ((B-1)α+1)/(B+1), i.e. 0.0545 at B=199 and
   α=0.05). The single-test experiments (`exp_calibration_pipeline.py`, `exp_departure_shape.py`,
   `exp_training_size.py`, `exp_number_of_orderings.py`, `exp_sparsity_path.py`,
-  `app_fx_risk_model.py`) were rerun under the rank rule on 19 September 2026; the archives in
-  `results/` and the figures are from those runs. The same constraint binds on the conformal calibration set in
+  `app_fx_risk_model.py`) were rerun under the rank rule on 19 September 2026, and
+  `exp_threshold_dependence.py` on 25 September 2026; the archives in `results/` and the figures
+  are from those runs. The same constraint binds on the conformal calibration set in
   `exp_conformal_comparison.py`, which is why that script uses larger reference samples than the
   rest: a conformal $p$-value is a multiple of $1/(\ell+1)$, so too small an $\ell$ makes every
   conformal method reject nothing at all.

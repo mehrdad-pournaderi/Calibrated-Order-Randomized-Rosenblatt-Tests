@@ -20,6 +20,10 @@ explanation is right, the ranking should invert as alpha falls, with no change o
 
 Three alternatives are used: the two-coordinate departure of Figure 2, and the sparse and dense
 halves of the heterogeneous non-nulls of Figure 4.
+
+v2 (Sep 2026): decisions by the rank-based Monte-Carlo rule of Procedure 1 on the uncapped merger
+summaries, so this script follows the same calibration as every other experiment (it previously
+used interpolated np.quantile thresholds, whose bias at 2e5 draws is of order 1e-5).
 """
 import numpy as np
 from scipy import stats
@@ -59,14 +63,15 @@ def stats_of(V):
         Ps = simes2(Z)
         t = np.stack([-0.5 * a * a + logcosh(a * Z) for a in TAUS])
         lE = logsumexp(t, axis=(0, -1)) - (np.log(n) + np.log(len(TAUS)))
-        out["pmerge"].append(np.minimum(2 * Ps.mean(-1), 1.0))
-        out["bonf"].append(np.minimum(M * Ps.min(-1), 1.0))
+        out["pmerge"].append(2 * Ps.mean(-1))          # uncapped summaries (v2)
+        out["bonf"].append(M * Ps.min(-1))
         out["eavg"].append(-(logsumexp(lE, -1) - np.log(M)))
         out["single"].append(Ps[:, 0])
     return {k: np.concatenate(v) for k, v in out.items()}
 
 
 null = stats_of(rng.standard_normal((NDRAW, n)) @ L.T)
+SORTED_NULL = {x: np.sort(null[x]) for x in KEYS}
 
 CASES = [("fig2", 12.0, 2, "Figure 2 alternative: two coordinates, ncp=12"),
          ("sparse", 20.0, 1, "Figure 4, sparse half: one coordinate, ncp=20"),
@@ -82,8 +87,10 @@ for tag, ncp, k_shift, lab in CASES:
     print(lab)
     print("  %-9s %s" % ("alpha", "  ".join("%8s" % x for x in KEYS)))
     for a in ALPHAS:
-        crit = {x: np.quantile(null[x], a) for x in KEYS}
-        row = {x: float((alt[x] <= crit[x]).mean()) for x in KEYS}
+        # rank-based Monte-Carlo decision (Procedure 1 at known F): reject iff
+        # (1 + #{null <= obs}) / (NDRAW + 1) <= alpha   (v2; was an interpolated quantile)
+        row = {x: float((1 + np.searchsorted(SORTED_NULL[x], alt[x], side='right')
+                         <= a * (NDRAW + 1)).mean()) for x in KEYS}
         for x in KEYS:
             POW["%s_%s" % (tag, x)] = POW.get("%s_%s" % (tag, x), []) + [row[x]]
         print("  %-9.4f %s   <- %s" % (a, "  ".join("%8.3f" % row[x] for x in KEYS),
