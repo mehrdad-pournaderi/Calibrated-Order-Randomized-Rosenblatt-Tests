@@ -4,13 +4,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # method palette (consistent across every figure)
-C = dict(single="#238b45", pmerge="#d73027", bonf="#7f0000", eavg="#08519c",
+C = dict(single="#238b45", pmerge="#d73027", bonf="#7f0000", eavg="#08519c", e1="#6baed6",
          chi2="#888888", sym="#b8860b", fisher="#8e44ad", fisherpool="#5b2c6f",
          one="#d73027", two="#08519c", accent="#4575b4", light="#74add1",
          neutral="#555555", med="#969696")
 
 LBL = dict(single="single random order", pmerge="p-merge", bonf="Bonferroni/orders",
-           eavg="e-value avg", chi2=r"$\chi^2$ (order-inv.)",
+           eavg="e-value avg", e1="e-value (single order)", chi2=r"$\chi^2$ (order-inv.)",
            sym=r"$\Sigma^{-1/2}$+Simes (order-inv.)", fisher="Fisher (single order)",
            fisherpool="Fisher-pool")
 

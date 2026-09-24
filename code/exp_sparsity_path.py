@@ -48,8 +48,11 @@ chin = np.einsum('ki,ij,kj->k', Xn, Sinv, Xn)
 
 
 def cal(nst, ast, low=True):
-    c = np.quantile(nst, ALPHA if low else 1 - ALPHA)
-    return float((ast <= c).mean()) if low else float((ast >= c).mean())
+    # rank-based MC decision, p = (1+#{null at least as extreme})/(K+1) <= alpha
+    sb = np.sort(nst); K = len(nst)
+    if low:
+        return float((1 + np.searchsorted(sb, ast, side='right') <= ALPHA * (K + 1)).mean())
+    return float((1 + (K - np.searchsorted(sb, ast, side='left')) <= ALPHA * (K + 1)).mean())
 
 
 KEYS = ["single", "pmerge", "bonf", "eavg", "sym", "chi2"]

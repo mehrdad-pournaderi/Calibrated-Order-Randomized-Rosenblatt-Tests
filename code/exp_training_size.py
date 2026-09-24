@@ -96,15 +96,27 @@ def naive_reject(st):
                 eavg=st["eavg"] >= 1 / ALPHA, chi2=st["chi2"] >= CHI2_CRIT)
 
 
+def mc_low(bootv, obs, alpha):
+    """Rank-based MC p-value decision (finite-B exact under exchangeability); interpolated
+    quantiles are anti-conservative: expected rejection ((B-1)a+1)/(B+1)."""
+    sb = np.sort(bootv)
+    return 1 + np.searchsorted(sb, obs, side='right') <= alpha * (len(bootv) + 1)
+
+
+def mc_high(bootv, obs, alpha):
+    sb = np.sort(bootv)
+    return 1 + (len(bootv) - np.searchsorted(sb, obs, side='left')) <= alpha * (len(bootv) + 1)
+
+
 def evalrej(boot, null, alt):
     out = {}
     for k in PKEYS:
-        c = np.quantile(boot[k], ALPHA)
-        out[k] = (float((null[k] <= c).mean()), float((alt[k] <= c).mean()),
+        out[k] = (float(mc_low(boot[k], null[k], ALPHA).mean()),
+                  float(mc_low(boot[k], alt[k], ALPHA).mean()),
                   float(naive_reject(null)[k].mean()))
     for k in EKEYS:
-        c = np.quantile(boot[k], 1 - ALPHA)
-        out[k] = (float((null[k] >= c).mean()), float((alt[k] >= c).mean()),
+        out[k] = (float(mc_high(boot[k], null[k], ALPHA).mean()),
+                  float(mc_high(boot[k], alt[k], ALPHA).mean()),
                   float(naive_reject(null)[k].mean()))
     return out
 

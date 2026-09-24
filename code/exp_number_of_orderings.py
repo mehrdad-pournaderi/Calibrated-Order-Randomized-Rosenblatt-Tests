@@ -47,8 +47,11 @@ def per_order(X, perms, Linv):
 
 
 def cal_power(null_s, alt_s, low=True):
-    c = np.quantile(null_s, ALPHA if low else 1 - ALPHA)
-    return float((alt_s <= c).mean()) if low else float((alt_s >= c).mean())
+    # rank-based MC decision, p = (1+#{null at least as extreme})/(K+1) <= alpha
+    sb = np.sort(null_s); K = len(null_s)
+    if low:
+        return float((1 + np.searchsorted(sb, alt_s, side='right') <= ALPHA * (K + 1)).mean())
+    return float((1 + (K - np.searchsorted(sb, alt_s, side='left')) <= ALPHA * (K + 1)).mean())
 
 
 out = {}

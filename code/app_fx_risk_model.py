@@ -11,6 +11,18 @@ Tests (all bootstrap-calibrated per year by Procedure 1, B replicates, alpha=0.0
       single random ordering (two-sided Simes), pooled orderings (p-merge, Bonferroni,
       e-value average; M=12 fresh orderings per day), chi2 and symmetric-root references.
 Also: naive e-BH day screening at q=0.1 on the raw averaged e-values, and top flagged days.
+      The e-BH layer is a statement about the ISSUED FORECAST null H0: X_t ~ N(mu_hat,
+      Sigma_hat), under which the whitened scores are exactly standard normal and the raw
+      e-values are valid; it is not a claim under the estimated-population null.
+
+v2 (review credit: GPT Astra):
+  - rank-based Monte-Carlo p-value decisions, p = (1+#{T* at least as extreme})/(B+1),
+    replacing interpolated quantile thresholds (anti-conservative at finite B);
+  - the bootstrap now re-estimates the MEAN inside each replicate and centers the calibration
+    vector with it, so mean-estimation uncertainty is carried by the calibration null exactly
+    as in the real pipeline (previously only the covariance was re-estimated);
+  - the day-level paired-gap standard error uses a Newey-West (Bartlett) estimator to account
+    for serial dependence.
 """
 import glob
 import numpy as np
@@ -100,12 +112,15 @@ def all_stats(V, Linv, Sinv, W):
 
 
 def calibrate(Shat, Ntr):
-    """Procedure 1: B replicates with re-estimated Sigma*, fresh orderings per replicate."""
+    """Procedure 1: B replicates with re-estimated mean AND Sigma*, fresh orderings per
+    replicate. Returns the sorted bootstrap statistics; decisions are rank-based."""
     A = np.linalg.cholesky(Shat)
     Xtr = rng.standard_normal((B, Ntr, n)) @ A.T
-    Sst = np.einsum('bki,bkj->bij', Xtr - Xtr.mean(1, keepdims=True),
-                    Xtr - Xtr.mean(1, keepdims=True)) / (Ntr - 1) + 1e-8 * np.eye(n)
-    Vc = rng.standard_normal((B, n)) @ A.T
+    mu_st = Xtr.mean(1)                                  # re-estimated mean, per replicate
+    Sst = np.einsum('bki,bkj->bij', Xtr - mu_st[:, None, :],
+                    Xtr - mu_st[:, None, :]) / (Ntr - 1) + 1e-8 * np.eye(n)
+    # the real pipeline centers the test day by the ESTIMATED mean; carry that error here:
+    Vc = rng.standard_normal((B, n)) @ A.T - mu_st
     P = rand_perms(B, M)
     Zc = np.empty((B, M, n))
     for b in range(B):
@@ -117,10 +132,15 @@ def calibrate(Shat, Ntr):
     boot["chi2"] = np.einsum('bi,bij,bj->b', Vc, np.linalg.inv(Sst), Vc)
     Wb = invsqrt(Sst)
     boot["sym"] = simes2(np.einsum('bij,bj->bi', Wb, Vc))
-    crit = {k: np.quantile(boot[k], ALPHA) for k in ("single", "pmerge", "bonf", "sym")}
-    crit["eavg"] = np.quantile(boot["eavg"], 1 - ALPHA)
-    crit["chi2"] = np.quantile(boot["chi2"], 1 - ALPHA)
-    return crit
+    return {k: np.sort(v) for k, v in boot.items()}
+
+
+def mc_low(sorted_boot, obs):
+    return 1 + np.searchsorted(sorted_boot, obs, side='right') <= ALPHA * (B + 1)
+
+
+def mc_high(sorted_boot, obs):
+    return 1 + (B - np.searchsorted(sorted_boot, obs, side='left')) <= ALPHA * (B + 1)
 
 
 # ---------------- run per year ----------------
@@ -134,11 +154,11 @@ for y in range(2016, 2026):
     mu, Shat = tr.mean(0), np.cov(tr.T, ddof=1) + 1e-8 * np.eye(n)
     Sinv, W = np.linalg.inv(Shat), invsqrt(Shat)
     Linv = np.linalg.inv(np.linalg.cholesky(Shat))
-    crit = calibrate(Shat, len(tr))
+    boot = calibrate(Shat, len(tr))
     st = all_stats(te - mu, Linv, Sinv, W)
-    rej = {k: (st[k] <= crit[k]) for k in ("single", "pmerge", "bonf", "sym")}
-    rej["eavg"] = st["eavg"] >= crit["eavg"]
-    rej["chi2"] = st["chi2"] >= crit["chi2"]
+    rej = {k: mc_low(boot[k], st[k]) for k in ("single", "pmerge", "bonf", "sym")}
+    rej["eavg"] = mc_high(boot["eavg"], st["eavg"])
+    rej["chi2"] = mc_high(boot["chi2"], st["chi2"])
     rows.append((y, len(te)) + tuple(float(rej[k].mean()) for k in KEYS))
     gaps.append(rej["eavg"].astype(float) - rej["single"].astype(float))
     logE_all.append(st["eavg"]); dates_all.extend(dte); rej_flags.append(rej["eavg"])
@@ -146,9 +166,25 @@ for y in range(2016, 2026):
           "  ".join("%s=%.3f" % (k, rej[k].mean()) for k in KEYS))
 
 gap = np.concatenate(gaps)
-print("\npaired day-level gap (e-avg - single): %.4f +/- %.4f (T=%d days, t=%.1f)"
-      % (gap.mean(), gap.std(ddof=1) / np.sqrt(len(gap)), len(gap),
-         gap.mean() / (gap.std(ddof=1) / np.sqrt(len(gap)))))
+
+
+def nw_se(x, lag=None):
+    """Newey-West (Bartlett) standard error of the mean under serial dependence."""
+    x = np.asarray(x, float) - np.mean(x)
+    T = len(x)
+    if lag is None:
+        lag = int(np.floor(4 * (T / 100.0) ** (2.0 / 9.0)))   # standard rule of thumb
+    s = np.dot(x, x) / T
+    for l in range(1, lag + 1):
+        w = 1.0 - l / (lag + 1.0)
+        s += 2.0 * w * np.dot(x[l:], x[:-l]) / T
+    return np.sqrt(max(s, 0.0) / T)
+
+
+se_iid = gap.std(ddof=1) / np.sqrt(len(gap))
+se_nw = nw_se(gap)
+print("\npaired day-level gap (e-avg - single): %.4f +/- %.4f NW (iid se %.4f; T=%d days, t=%.1f)"
+      % (gap.mean(), se_nw, se_iid, len(gap), gap.mean() / se_nw))
 
 # ---------------- naive e-BH across all days ----------------
 logE = np.concatenate(logE_all); E = np.exp(logE); N = len(E)
@@ -164,7 +200,7 @@ for i in top:
 
 np.savez("results_fx_application.npz",
          rows=np.array(rows), keys=np.array(KEYS),
-         gap_mean=gap.mean(), gap_se=gap.std(ddof=1) / np.sqrt(len(gap)),
+         gap_mean=gap.mean(), gap_se=se_nw, gap_se_iid=se_iid,
          logE=logE, dates=np.array(dates_all),
          rej_eavg=np.concatenate(rej_flags),
          ebh_flag=np.isin(np.arange(N), sel), alpha=ALPHA, q=Q_EBH, M=M, B=B)

@@ -3,6 +3,11 @@ ONE CLEAN SETTING for calibration + power (Figure 'boot' replacement):
 n=20, rho=0.5 equicorrelated, k=2 same-sign shifted coordinates, ncp=12,
 N_tr in {4n, 8n, known}. For every method: naive size, calibrated size,
 calibrated power. Pooled p-merge dominates all order-invariant references here.
+
+v2: rank-based Monte-Carlo p-value decisions, p = (1+#{T* at least as extreme})/(B+1) <= alpha
+    (interpolated quantiles are anti-conservative at finite B: ((B-1)a+1)/(B+1) = 0.0545 at
+    B=199); adds 'e1', the calibrated single-ordering mixture e-value, to isolate aggregation
+    from the base statistic. (Review credit: GPT Astra.)
 """
 import numpy as np
 from scipy import stats
@@ -43,13 +48,24 @@ def om(Z):
     pf = stats.chi2.sf(-2 * np.log(np.maximum(p2, 1e-300)).sum(-1), 2 * N)
     return dict(single=Ps[..., 0], pmerge=np.minimum(2 * Ps.mean(-1), 1.0),
                 bonf=np.minimum(Mn * Ps.min(-1), 1.0),
-                eavg=np.exp(logsumexp(logE, -1) - np.log(Mn)), fisher=pf[..., 0])
+                eavg=np.exp(logsumexp(logE, -1) - np.log(Mn)),
+                e1=np.exp(logE[..., 0]), fisher=pf[..., 0])
 
 
 def draw(mu, Sm, k): return mu + rng.standard_normal((k, N)) @ np.linalg.cholesky(Sm).T
 
 
-PK = ["single", "pmerge", "bonf", "fisher", "sym"]; EK = ["eavg", "chi2"]
+def mc_low(bootv, obs, alpha):
+    sb = np.sort(bootv)
+    return 1 + np.searchsorted(sb, obs, side='right') <= alpha * (len(bootv) + 1)
+
+
+def mc_high(bootv, obs, alpha):
+    sb = np.sort(bootv)
+    return 1 + (len(bootv) - np.searchsorted(sb, obs, side='left')) <= alpha * (len(bootv) + 1)
+
+
+PK = ["single", "pmerge", "bonf", "fisher", "sym"]; EK = ["eavg", "e1", "chi2"]
 ALLK = PK + EK
 OUT = {k: {"ns": [], "cs": [], "cp": []} for k in ALLK}
 print("Clean setting: n=%d, rho=%.1f, k=%d, ncp=%.0f, M=%d, R=%d, B=%d" % (N, RHO, K, NCP, M, R, B))
@@ -82,13 +98,14 @@ for Ntr in NTR_GRID:
             return s
         nul = st(draw(np.zeros(N), S, NTE)); alt = st(draw(MU, S, NTE))
         for k in PK:
-            c = np.quantile(boot[k], ALPHA)
-            acc[k]["cs"] += (nul[k] <= c).mean(); acc[k]["cp"] += (alt[k] <= c).mean()
+            acc[k]["cs"] += mc_low(boot[k], nul[k], ALPHA).mean()
+            acc[k]["cp"] += mc_low(boot[k], alt[k], ALPHA).mean()
             acc[k]["ns"] += (nul[k] < ALPHA).mean()
         for k in EK:
-            c = np.quantile(boot[k], 1 - ALPHA)
-            acc[k]["cs"] += (nul[k] >= c).mean(); acc[k]["cp"] += (alt[k] >= c).mean()
+            acc[k]["cs"] += mc_high(boot[k], nul[k], ALPHA).mean()
+            acc[k]["cp"] += mc_high(boot[k], alt[k], ALPHA).mean()
         acc["eavg"]["ns"] += (nul["eavg"] >= 1 / ALPHA).mean()
+        acc["e1"]["ns"] += (nul["e1"] >= 1 / ALPHA).mean()
         acc["chi2"]["ns"] += (nul["chi2"] >= CCRIT).mean()
     lab = "known" if Ntr == 0 else str(Ntr)
     print("  N_tr=%s" % lab)

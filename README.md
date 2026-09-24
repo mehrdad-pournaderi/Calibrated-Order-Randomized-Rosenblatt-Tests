@@ -44,7 +44,8 @@ cd code
 | `exp_conformal_novelty_density.py` | how the crossover with AdaDetect moves with the null proportion | Table 2, §7.3 |
 
 `exp_departure_shape.py` takes a mode argument: `alt` (sparse vs dense), `rho` (dependence sweep),
-`n` (dimension sweep).
+`n` (dimension sweep). It writes `results_shape_<mode>.npz`; the `alt` archive is stored in
+`results/` as `results_shape_sparse_dense.npz`, the name `fig3_departure_shape.py` reads.
 
 Three experiments run in seeded chunks and are pooled afterwards, because their realized false
 discovery proportion is coarse when non-nulls are rare. `exp_multiplicity_screening.py` takes a
@@ -65,16 +66,20 @@ Monte-Carlo standard errors are exact too. The two conformal scripts are the onl
 | `check_data_dependent_ordering.py` | may the ordering be chosen from the data? (no) |
 | `check_predecessor_sets.py` | is the position of the departure a sufficient description? (no) |
 | `check_fisher_pooling.py` | does pooling improve the Fisher base statistic? (no) |
+| `check_evidence_power_bridge.py` | when does expected log-evidence control fixed-level power? |
+| `check_equicorrelated_orbit.py` | the exactly solvable orbit: closed-form profiles and exact power (background) |
+| `check_quoted_numbers.py` | re-verifies every number the paper quotes from the single-test and FX archives (run from `results/`, optionally with the path to `paper.tex`) |
 
 **Application and figures:**
 
 ```bash
-python app_fx_risk_model.py       # foreign-exchange validation -> Figure 5
+python app_fx_risk_model.py       # foreign-exchange validation -> Figure 5 (reads fx_DEX*.csv from the working directory; copy data/*.csv into code/ first)
 python fig1_two_sided_blindspot.py
 python fig2_calibration_pipeline.py
 python fig3_departure_shape.py
 python fig4_multiplicity_screening.py
 python fig5_fx_application.py
+python fig_orbit_exact.py         # exact-orbit figure (background; not in the paper)
 ```
 
 Figure scripts read the `.npz` archives; copy `results/*.npz` into `code/` (or run from `results/`)
@@ -88,10 +93,24 @@ figures regenerate byte-for-byte from the archives in `results/`.
   therefore the *expected* power of an arbitrarily chosen ordering. Freezing one permutation across
   realizations makes the baseline a lottery ticket and can overstate the gain from pooling several
   fold.
-- **In the multiplicity layer, the bootstrap replicate count must satisfy $B > N/q$.** A bootstrap
-  $p$-value cannot fall below $1/(B+1)$, while Benjamini–Hochberg needs values as small as $q/N$;
+- **The e-value path carries its own single-ordering baseline.** `exp_calibration_pipeline.py` and
+  `exp_departure_shape.py` report `e1`, the calibrated mixture e-value of one random ordering, next
+  to the e-value average; the paired gap `eavg − e1` (keys `g1e_*`) isolates the effect of
+  aggregation from the choice of base statistic, whereas `eavg − single` also changes the base
+  statistic (Simes p-value to mixture e-value). In the FX application the bootstrap re-estimates the
+  mean as well as the covariance inside each replicate, and the day-level gap standard error is
+  Newey–West.
+- **In the multiplicity layer, the bootstrap replicate count should satisfy $B > N/q$.** A bootstrap
+  $p$-value cannot fall below $1/(B+1)$, while Benjamini–Hochberg's smallest threshold is $q/N$;
   with too small a $B$ the attainable power of every method is capped by calibration granularity
-  rather than by the test. The same constraint binds on the conformal calibration set in
+  rather than by the test (the condition is sufficient for full BH resolution, not necessary for
+  making some rejections). All calibrated decisions use rank-based Monte-Carlo p-values,
+  (1 + #{T*_b at least as extreme as T_obs})/(B+1), never interpolated quantiles, which are
+  anti-conservative at finite B (expected rejection ((B-1)α+1)/(B+1), i.e. 0.0545 at B=199 and
+  α=0.05). The single-test experiments (`exp_calibration_pipeline.py`, `exp_departure_shape.py`,
+  `exp_training_size.py`, `exp_number_of_orderings.py`, `exp_sparsity_path.py`,
+  `app_fx_risk_model.py`) were rerun under the rank rule on 19 September 2026; the archives in
+  `results/` and the figures are from those runs. The same constraint binds on the conformal calibration set in
   `exp_conformal_comparison.py`, which is why that script uses larger reference samples than the
   rest: a conformal $p$-value is a multiple of $1/(\ell+1)$, so too small an $\ell$ makes every
   conformal method reject nothing at all.

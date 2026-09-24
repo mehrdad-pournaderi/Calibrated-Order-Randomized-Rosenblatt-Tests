@@ -2,11 +2,16 @@
 Robustness sweep for the bootstrap-calibrated comparison.
 Usage: python3 sim7.py {n|rho|alt}
 
-CORRECTED VERSION (v2):
+CORRECTED VERSION (v3):
  - fresh random orderings drawn in EVERY realization (the 'single' baseline is the
    expected power of an arbitrarily chosen ordering, per the paper's definition);
  - deterministic per-mode seeds (no hash(), which is process-randomized);
- - order-invariant references chi2 and sym (Sigma^{-1/2} whitening + two-sided Simes).
+ - order-invariant references chi2 and sym (Sigma^{-1/2} whitening + two-sided Simes);
+ - v3: decisions by RANK-BASED Monte-Carlo p-values, p = (1+#{T*_b at least as extreme})/(B+1),
+   reject iff p <= alpha. Interpolated np.quantile thresholds are anti-conservative at finite B:
+   expected rejection ((B-1)a+1)/(B+1) = 0.0545 at B=199, a=0.05. (Review credit: GPT Astra.)
+ - v3: adds 'e1', the CALIBRATED SINGLE-ORDERING mixture e-value, so that pooled-vs-single for
+   the e-value path compares like with like (same base statistic, aggregation isolated).
 
 For each config, at N_train = 4n (heavy estimation) and known F:
   - calibrated null size per method (should be ~alpha)
@@ -66,15 +71,30 @@ def order_methods(Z, n):
                 pmerge=np.minimum(2 * Psimes.mean(-1), 1.0),
                 bonf=np.minimum(M * Psimes.min(-1), 1.0),
                 eavg=np.exp(logsumexp(logE, -1) - np.log(M)),
+                e1=np.exp(logE[..., 0]),
                 fisher=pfish[..., 0],
                 pmerge_f=np.minimum(2 * pfish.mean(-1), 1.0),
                 bonf_f=np.minimum(M * pfish.min(-1), 1.0))
 
 
 def draw(mu, S, k, rng): return mu + rng.standard_normal((k, S.shape[0])) @ np.linalg.cholesky(S).T
+
+
+def mc_low(bootv, obs, alpha):
+    """Rank-based MC test, small values are evidence: reject iff (1+#{T* <= obs})/(B+1) <= alpha."""
+    sb = np.sort(bootv)
+    return 1 + np.searchsorted(sb, obs, side='right') <= alpha * (len(bootv) + 1)
+
+
+def mc_high(bootv, obs, alpha):
+    """Rank-based MC test, large values are evidence."""
+    sb = np.sort(bootv)
+    return 1 + (len(bootv) - np.searchsorted(sb, obs, side='left')) <= alpha * (len(bootv) + 1)
+
+
 PKEYS = ["single", "pmerge", "bonf", "sym", "fisher", "pmerge_f", "bonf_f"]
-EKEYS = ["eavg", "chi2"]
-ALLK = ["single", "pmerge", "bonf", "eavg", "chi2", "sym", "fisher", "pmerge_f", "bonf_f"]
+EKEYS = ["eavg", "e1", "chi2"]
+ALLK = ["single", "pmerge", "bonf", "eavg", "e1", "chi2", "sym", "fisher", "pmerge_f", "bonf_f"]
 
 
 def compare(Sigma, Ntr, alt_type, rng):
@@ -113,16 +133,16 @@ def compare(Sigma, Ntr, alt_type, rng):
             return st
         nul, alt = allst(Xn), allst(Xa)
         for k in PKEYS:
-            c = np.quantile(boot[k], ALPHA)
-            csize[k] += (nul[k] <= c).mean(); v = (alt[k] <= c).mean(); cpow[k] += v; pr[k].append(v)
+            csize[k] += mc_low(boot[k], nul[k], ALPHA).mean()
+            v = mc_low(boot[k], alt[k], ALPHA).mean(); cpow[k] += v; pr[k].append(v)
         for k in EKEYS:
-            c = np.quantile(boot[k], 1 - ALPHA)
-            csize[k] += (nul[k] >= c).mean(); v = (alt[k] >= c).mean(); cpow[k] += v; pr[k].append(v)
-    def gap(kk):
-        d = np.array(pr[kk]) - np.array(pr["single"])
+            csize[k] += mc_high(boot[k], nul[k], ALPHA).mean()
+            v = mc_high(boot[k], alt[k], ALPHA).mean(); cpow[k] += v; pr[k].append(v)
+    def gap(kk, base="single"):
+        d = np.array(pr[kk]) - np.array(pr[base])
         return float(d.mean()), float(d.std(ddof=1) / np.sqrt(R))
     return ({k: csize[k] / R for k in ALLK}, {k: cpow[k] / R for k in ALLK},
-            gap("pmerge"), gap("eavg"))
+            gap("pmerge"), gap("eavg"), gap("eavg", base="e1"))
 
 
 mode = sys.argv[1] if len(sys.argv) > 1 else "n"
@@ -135,12 +155,13 @@ else:
     configs = [("sparse", 10, 0.5, "sparse"), ("dense", 10, 0.5, "dense")]
 
 labels = []; out = {f"{m}_{k}": [] for m in ["csz", "cpw", "cpw_known"] for k in ALLK}
-for L in ["gm_s", "ge_s", "gm_k", "ge_k", "gme_s", "gee_s", "gme_k", "gee_k"]: out[L] = []
+for L in ["gm_s", "ge_s", "gm_k", "ge_k", "gme_s", "gee_s", "gme_k", "gee_k",
+          "g1e_s", "g1ee_s", "g1e_k", "g1ee_k"]: out[L] = []
 print("MODE=%s  (R=%d B=%d NTE=%d ncp=%.0f, fresh orderings per realization)" % (mode, R, B, NTE, NCP))
 for name, n, rho, alt in configs:
     Nsmall = int(round(4 * n))
-    cs_s, cp_s, gp_s, ge_s2 = compare(equicorr(n, rho), Nsmall, alt, rng)
-    cs_k, cp_k, gp_k, ge_k2 = compare(equicorr(n, rho), 0, alt, rng)
+    cs_s, cp_s, gp_s, ge_s2, g1_s = compare(equicorr(n, rho), Nsmall, alt, rng)
+    cs_k, cp_k, gp_k, ge_k2, g1_k = compare(equicorr(n, rho), 0, alt, rng)
     labels.append(name)
     for k in ALLK:
         out[f"csz_{k}"].append(cs_s[k]); out[f"cpw_{k}"].append(cp_s[k])
@@ -149,12 +170,16 @@ for name, n, rho, alt in configs:
     out["gm_k"].append(gp_k[0]); out["ge_k"].append(gp_k[1])
     out["gme_s"].append(ge_s2[0]); out["gee_s"].append(ge_s2[1])
     out["gme_k"].append(ge_k2[0]); out["gee_k"].append(ge_k2[1])
+    out["g1e_s"].append(g1_s[0]); out["g1ee_s"].append(g1_s[1])
+    out["g1e_k"].append(g1_k[0]); out["g1ee_k"].append(g1_k[1])
     print("  %-9s (M=%d,Nsmall=%d): size[" % (name, MFIX, Nsmall) +
           " ".join("%s=%.3f" % (k, cs_s[k]) for k in ALLK) + "]")
     print("     power small[" + " ".join("%s=%.3f" % (k, cp_s[k]) for k in ALLK) + "]")
     print("     power known[" + " ".join("%s=%.3f" % (k, cp_k[k]) for k in ALLK) + "]")
     print("     gap pmerge: small=%.4f±%.4f known=%.4f±%.4f | gap eavg: small=%.4f±%.4f known=%.4f±%.4f"
           % (gp_s[0], gp_s[1], gp_k[0], gp_k[1], ge_s2[0], ge_s2[1], ge_k2[0], ge_k2[1]))
+    print("     gap eavg-vs-e1 (same base, aggregation isolated): small=%.4f±%.4f known=%.4f±%.4f"
+          % (g1_s[0], g1_s[1], g1_k[0], g1_k[1]))
 
 np.savez("results_shape_%s.npz" % mode,
          labels=np.array(labels), **{k: np.array(v) for k, v in out.items()},
