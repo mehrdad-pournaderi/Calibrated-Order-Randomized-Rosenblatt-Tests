@@ -68,6 +68,17 @@ intex("$0.437$, $0.467$, $0.495$")
 intex("$0.410$, $0.438$, $0.475$")
 intex("$0.040$, against $0.076$")
 
+# ---------------------------------------------------------------- §4 sparse-vs-dense at equal KL (results_base_statistic.npz)
+bs = np.load("results_base_statistic.npz")
+print("§4 sparse vs dense at KL=4, n=50 (results_base_statistic.npz)")
+j = int(np.argmin(np.abs(bs["kappas"] - 4)))
+check("two-sided Simes, sparse (36%)", bs["pow_sparse2"][j], 0.36, 2)
+check("two-sided Simes, dense (10%)", bs["pow_dense2"][j], 0.10, 2)
+check("one-sided Simes, sparse (43%)", bs["pow_sparse"][j], 0.43, 2)
+check("one-sided Simes, dense (17%)", bs["pow_dense"][j], 0.17, 2)
+intex("detects the departure $36\\%$ of the time")
+intex("$10\\%$ when it is spread evenly over all fifty (one-sided: $43\\%$ and $17\\%$)")
+
 # ---------------------------------------------------------------- calibrated-size sweep cells
 print("§6.1 sweep-cell calibrated sizes")
 cells = []

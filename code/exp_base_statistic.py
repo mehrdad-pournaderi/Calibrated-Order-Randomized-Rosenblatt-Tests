@@ -96,19 +96,22 @@ print("\n=== C. Sparse vs dense at equal KL (n=50) ===")
 n = 50
 kappas = np.linspace(0, 8, 25)
 pow_sparse, pow_dense = [], []
+pow_sparse2, pow_dense2 = [], []          # two-sided Simes (the paper's base statistic), same draws
 for kap in kappas:
     # sparse
     Xs = rng.standard_normal((REPS, n))
     Xs[:, 0] += np.sqrt(2 * kap)
-    pow_sparse.append(reject_rate(Xs))
+    pow_sparse.append(reject_rate(Xs)); pow_sparse2.append(reject_rate(Xs, two_sided=True))
     # dense
     Xd = rng.standard_normal((REPS, n))
     Xd += np.sqrt(2 * kap / n)
-    pow_dense.append(reject_rate(Xd))
+    pow_dense.append(reject_rate(Xd)); pow_dense2.append(reject_rate(Xd, two_sided=True))
 pow_sparse, pow_dense = np.array(pow_sparse), np.array(pow_dense)
+pow_sparse2, pow_dense2 = np.array(pow_sparse2), np.array(pow_dense2)
 for kap in (2, 4, 6):
     j = np.argmin(abs(kappas - kap))
-    print(f" KL={kap}: sparse={pow_sparse[j]:.3f}  dense={pow_dense[j]:.3f}")
+    print(f" KL={kap}: one-sided sparse={pow_sparse[j]:.3f}  dense={pow_dense[j]:.3f}   |"
+          f"  two-sided sparse={pow_sparse2[j]:.3f}  dense={pow_dense2[j]:.3f}")
 
 # ----------------------------------------------------------------------
 # D. Dispersion misspecification: true sd = sigma, assumed sd = 1, n=20
@@ -156,6 +159,7 @@ np.savez("results_base_statistic.npz",
          bd10=boundA[10], bd20=boundA[20], bd50=boundA[50],
          deltas_B=deltas_B, pow_one=pow_one, pow_two=pow_two,
          kappas=kappas, pow_sparse=pow_sparse, pow_dense=pow_dense,
+         pow_sparse2=pow_sparse2, pow_dense2=pow_dense2,
          sigmas=sigmas, pow_d_one=pow_d_one, pow_d_two=pow_d_two,
          cs=cs, pow_mix_one=pow_mix_one, pow_mix_two=pow_mix_two,
          alpha=ALPHA)

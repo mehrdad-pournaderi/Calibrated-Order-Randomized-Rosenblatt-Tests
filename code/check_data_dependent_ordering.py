@@ -60,11 +60,13 @@ def sorted_stat(Y, desc=True):
 def pooled_stat(Y):
     Pr = np.argsort(rng.random((Y.shape[0], M, n)), axis=-1)
     Z = np.einsum('ij,kmj->kmi', Li, np.take_along_axis(Y[:, None, :], Pr, axis=-1))
-    return np.minimum(2 * simes2(Z).mean(-1), 1.0)
+    return 2 * simes2(Z).mean(-1)            # uncapped merger summary
 
 
 def cal(nst, ast):
-    c = np.quantile(nst, ALPHA); return float((ast <= c).mean())
+    # rank-based Monte-Carlo decision (Procedure 1 at known F), uncapped statistics
+    sb = np.sort(nst); K = len(sb)
+    return float((1 + np.searchsorted(sb, ast, side='right') <= ALPHA * (K + 1)).mean())
 
 
 for lab, desc in [("sorted |x| descending", True), ("sorted |x| ascending", False)]:

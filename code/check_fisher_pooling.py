@@ -20,9 +20,9 @@ def om(Z):
     Ps = simes2(Z); Mn = Z.shape[-2]
     p2 = np.minimum(2 * stats.norm.sf(np.abs(Z)), 1.0)
     pf = stats.chi2.sf(-2 * np.log(np.maximum(p2, 1e-300)).sum(-1), 2 * n)
-    return dict(pmerge=np.minimum(2 * Ps.mean(-1), 1), fisher=pf[..., 0],
-                pmerge_f=np.minimum(2 * pf.mean(-1), 1),
-                bonf_f=np.minimum(Mn * pf.min(-1), 1))
+    return dict(pmerge=2 * Ps.mean(-1), fisher=pf[..., 0],          # uncapped summaries
+                pmerge_f=2 * pf.mean(-1),
+                bonf_f=Mn * pf.min(-1))
 
 
 def draw(mu, Sm, k): return mu + rng.standard_normal((k, n)) @ np.linalg.cholesky(Sm).T
@@ -47,8 +47,10 @@ for Ntr in [80, 160, 0]:
         nul = om(np.einsum('mij,kmj->kmi', Li, draw(np.zeros(n), S, NTE)[:, perms]))
         alt = om(np.einsum('mij,kmj->kmi', Li, draw(MU, S, NTE)[:, perms]))
         for k in KEYS:
-            c = np.quantile(boot[k], ALPHA)
-            cs[k] += (nul[k] <= c).mean(); cp[k] += (alt[k] <= c).mean()
+            # rank-based Monte-Carlo decision (Procedure 1), uncapped merger summaries
+            sb = np.sort(boot[k])
+            cs[k] += (1 + np.searchsorted(sb, nul[k], side='right') <= ALPHA * (B + 1)).mean()
+            cp[k] += (1 + np.searchsorted(sb, alt[k], side='right') <= ALPHA * (B + 1)).mean()
     print("Ntr=%s: " % ("known" if Ntr == 0 else Ntr) +
           "  ".join("%s[size=%.3f pow=%.3f]" % (k, cs[k] / R, cp[k] / R) for k in KEYS))
 print("done")

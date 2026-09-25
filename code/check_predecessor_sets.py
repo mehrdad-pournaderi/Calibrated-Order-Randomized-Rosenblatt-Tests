@@ -26,8 +26,9 @@ def power_of(perm, S, mu):
     Xn = rng.standard_normal((REPS, n)) @ L.T
     Xa = mu + rng.standard_normal((REPS, n)) @ L.T
     sn = simes2(Xn[:, perm] @ Li.T); sa = simes2(Xa[:, perm] @ Li.T)
-    c = np.quantile(sn, ALPHA)
-    return float((sa <= c).mean())
+    # rank-based Monte-Carlo decision (Procedure 1 at known F), uncapped statistics
+    sb = np.sort(sn); K = len(sb)
+    return float((1 + np.searchsorted(sb, sa, side='right') <= ALPHA * (K + 1)).mean())
 
 
 def equicorr(rho):
