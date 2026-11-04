@@ -15,6 +15,9 @@ from scipy.special import logsumexp
 
 import sys
 _seed = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+# optional third argument: `extra` adds N_tr = 5n, 6n, 7n (archived with R=100, seeds 501, 502) and
+# `extra2` adds 12n, 16n, 24n, 32n (R=100, seeds 601, 602), written as chunk_multiplicity_<mode>_s<seed>.npz
+MODE = sys.argv[3] if len(sys.argv) > 3 else ""
 rng = np.random.default_rng(1414 + 1000 * _seed)
 Q = 0.10; LOG2 = np.log(2.0)
 N, M, NCP, RHO = 20, 12, 20.0, 0.5
@@ -22,7 +25,7 @@ TAUS = np.array([1.0, 2.0, 3.0])
 NUNITS, PI0 = 200, 0.95     # sparse screen, matching the regime of Sec. 7.2
 R, B, BCHUNK = 25, 2500, 500  # replications are pooled across seeded chunks; with only
                               # 10 non-nulls the realized FDP is very variable
-NTR_GRID = [80, 160, 0]
+NTR_GRID = {"": [80, 160, 0], "extra": [100, 120, 140], "extra2": [240, 320, 480, 640]}[MODE]
 idx = np.arange(1, N + 1); ridge = 1e-3 * np.eye(N)
 
 S = np.full((N, N), RHO); np.fill_diagonal(S, 1.0)
@@ -141,7 +144,7 @@ for Ntr in NTR_GRID:
               % (k, np.mean(acc["naive"][k]["fdr"]), np.mean(acc["naive"][k]["pow"]),
                  np.mean(acc["cal"][k]["fdr"]), np.mean(acc["cal"][k]["pow"])))
 
-fn = "chunk_multiplicity_s%d.npz" % _seed
+fn = "chunk_multiplicity%s_s%d.npz" % ("_" + MODE if MODE else "", _seed)
 np.savez(fn, Ntr=np.array([g if g else 100000 for g in NTR_GRID]), R=R,
          **{f"{m}_{k}_{s}": np.array(RAW[m][k][s])       # shape (n_Ntr, R)
             for m in ("naive", "cal") for k in ALLK for s in ("fdr", "pow")},

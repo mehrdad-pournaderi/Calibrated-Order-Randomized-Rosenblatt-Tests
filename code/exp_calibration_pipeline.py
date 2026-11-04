@@ -14,15 +14,22 @@ v2: rank-based Monte-Carlo p-value decisions, p = (1+#{T* at least as extreme})/
     B=199); adds 'e1', the calibrated single-ordering mixture e-value, to isolate aggregation
     from the base statistic. (Review credit: GPT Astra.)
 """
+import sys
 import numpy as np
 from scipy import stats
 from scipy.special import logsumexp
 
-rng = np.random.default_rng(1111)
+# Modes add training sizes to Figure 2 under their own seeds, so the original columns are
+# untouched: the plain run gives 4n, 8n and known F; `extra` gives 5n, 6n, 7n and `extra2` gives
+# 12n, 16n, 24n, 32n, written to results_calibration_pipeline_<mode>.npz.
+MODES = {"": ([80, 160, 0], 1111), "extra": ([100, 120, 140], 1888),
+         "extra2": ([240, 320, 480, 640], 2999)}
+MODE = sys.argv[1] if len(sys.argv) > 1 else ""
+rng = np.random.default_rng(MODES[MODE][1])
 ALPHA = 0.05; LOG2 = np.log(2.0); TAUS = np.array([1.0, 2.0, 3.0])
 N, M, NCP, RHO, K = 20, 12, 12.0, 0.5, 2
 R, B, NTE = 150, 199, 160
-NTR_GRID = [80, 160, 0]                       # 0 = known F
+NTR_GRID = MODES[MODE][0]                     # 0 = known F
 
 S = np.full((N, N), RHO); np.fill_diagonal(S, 1.0)
 Sinv_true = np.linalg.inv(S)
@@ -119,7 +126,7 @@ for Ntr in NTR_GRID:
         print("    %-7s naive=%.3f cal-size=%.3f cal-POWER=%.3f"
               % (k, acc[k]["ns"] / R, acc[k]["cs"] / R, acc[k]["cp"] / R))
 
-np.savez("results_calibration_pipeline.npz", Ntr=np.array([g if g else 100000 for g in NTR_GRID]),
+np.savez("results_calibration_pipeline%s.npz" % ("_" + MODE if MODE else ""), Ntr=np.array([g if g else 100000 for g in NTR_GRID]),
          **{f"{k}_{m}": np.array(OUT[k][m]) for k in ALLK for m in ("ns", "cs", "cp")},
          alpha=ALPHA, ncp=NCP, n=N, M=M, rho=RHO, k=K)
 print("saved sim11.npz")

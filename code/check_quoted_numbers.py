@@ -270,5 +270,157 @@ rank_ok = all(int((np.stack([t[c + "_pmerge"], t[c + "_bonf"], t[c + "_eavg"]])[
 fails += (not rank_ok)
 print("  %-62s %s" % ("§7.2: eavg first or second at every level in every case", "PASS" if rank_ok else "FAIL"))
 
+# ---------------------------------------------------------------- §7.3 conformal comparison (Table 1)
+print("§7.3 conformal comparison (results_conformal_ntr_*.npz)")
+cf = {nn: np.load("results_conformal_ntr_%d.npz" % nn, allow_pickle=True) for nn in (400, 1000, 2000)}
+table = {"bonf": (0.629, 0.644, 0.663), "eavg": (0.605, 0.613, 0.630), "pmerge": (0.459, 0.445, 0.465),
+         "chi2": (0.336, 0.338, 0.369), "knn": (0.073, 0.405, 0.520), "mahal": (0.038, 0.183, 0.336),
+         "kde": (0.037, 0.141, 0.265), "ada-rf": (0.005, 0.116, 0.235), "ada-lr": (0.003, 0.026, 0.063)}
+for k, vals in table.items():
+    for nn, q in zip((400, 1000, 2000), vals):
+        check("Table 1 %s at N_tr=%d" % (k, nn), float(cf[nn][k + "_pow"]), q)
+for nn, z in ((1000, 10.6), (2000, 8.4)):
+    g = float(cf[nn]["bonf_pow"]) - float(cf[nn]["knn_pow"])
+    se = np.hypot(float(cf[nn]["bonf_se_pow"]), float(cf[nn]["knn_se_pow"]))
+    check("gap bonf - knn in SEs at N_tr=%d" % nn, g / se, z, 1)
+mx = max(float(cf[nn][k + "_fdr"]) for nn in cf for k in table)
+check("largest realized FDR in Table 1", mx, 0.107)
+ok = all(int(cf[nn]["ell_oneclass"]) == nn // 2 and int(cf[nn]["ell_adadetect"]) == nn // 2 for nn in cf)
+fails += (not ok)
+print("  %-62s %s" % ("balanced split l = N_tr/2 for every conformal method", "PASS" if ok else "FAIL"))
+intex("$0.038$ against $0.336$ at $\\Ntr=400$, $0.183$ against $0.338$ at $1000$, $0.336$ against\n$0.369$ at $2000$")
+
+# ---------------------------------------------------------------- added training sizes (Nov 2026)
+# Figures 2 and 4 with N_tr = 5n-7n and 12n-32n added (the *_extra.npz and *_extra2.npz archives),
+# the twenty-setting combiner comparison of §7.2, the screen's p-merge FDR, and Appendix B (Table B.1).
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import table_estimation_grid
+
+
+def merged(base, *extras):
+    d = dict(np.load(base))
+    for extra in extras:
+        e = np.load(extra)
+        m = len(d["Ntr"]); o = np.argsort(np.concatenate([d["Ntr"], e["Ntr"]]))
+        for k in list(d):
+            if k in e.files and np.ndim(d[k]) == 1 and len(d[k]) == m:
+                d[k] = np.concatenate([d[k], e[k]])[o]
+    return d
+
+
+def claim(label, ok):
+    global fails
+    fails += (not ok)
+    print("  %-62s %s" % (label, "PASS" if ok else "FAIL"))
+
+
+print("Figures 2 and 4 with ten training sizes (*_extra.npz, *_extra2.npz)")
+c6 = merged("results_calibration_pipeline.npz", "results_calibration_pipeline_extra.npz",
+            "results_calibration_pipeline_extra2.npz")
+s6 = merged("results_multiplicity_screening.npz", "results_multiplicity_screening_extra.npz",
+            "results_multiplicity_screening_extra2.npz")
+GRID = [80, 100, 120, 140, 160, 240, 320, 480, 640, 100000]
+claim("Fig 2 and Fig 4 grids are 4n-8n, 12n, 16n, 24n, 32n, known",
+      list(c6["Ntr"]) == GRID and list(s6["Ntr"]) == GRID)
+cs = np.stack([c6[k + "_cs"] for k in ("single", "pmerge", "bonf", "fisher", "sym", "eavg", "e1", "chi2")])
+claim("Fig 2B: every calibrated size within 0.05 +- 0.01 at every N_tr", bool(np.all(np.abs(cs - 0.05) <= 0.01)))
+for k in ("chi2", "sym", "single", "fisher"):
+    claim("Fig 2C: p-merge > %s at all ten N_tr" % k, bool(np.all(c6["pmerge_cp"] > c6[k + "_cp"])))
+claim("Fig 2: Bonferroni last of the three pooled at all ten N_tr",
+      bool(np.all(c6["bonf_cp"] < np.minimum(c6["pmerge_cp"], c6["eavg_cp"]))))
+mid = list(range(1, 9))                               # 5n ... 32n
+check("Fig 4B / §7.1: p-merge calibrated FDR, min over 5n-32n", s6["cal_pmerge_fdr"][mid].min(), 0.101)
+check("Fig 4B / §7.1: p-merge calibrated FDR, max over 5n-32n", s6["cal_pmerge_fdr"][mid].max(), 0.116)
+z = (s6["cal_pmerge_fdr"][mid] - 0.095) / s6["cal_pmerge_fdr_se"][mid]
+claim("§7.1: p-merge excess over q*pi0 within two SEs from 5n on", bool(np.all((z > 0) & (z < 2))))
+claim("§7.1: no p-merge excess at known F", bool(s6["cal_pmerge_fdr"][-1] <= 0.095))
+pooled = np.stack([s6["cal_%s_pow" % k] for k in ("pmerge", "bonf", "eavg")])
+base = np.maximum(s6["cal_sym_pow"], s6["cal_chi2_pow"])
+claim("Fig 4C: every pooled combiner beats both baselines from 5n on", bool(np.all(pooled[:, 1:] > base[1:])))
+others = np.stack([s6["cal_%s_pow" % k] for k in ("single", "sym", "chi2")]).max(0)
+claim("§7.1: Bonferroni and e-avg lead single, sym, chi2 from 5n on",
+      bool(np.all(np.minimum(s6["cal_bonf_pow"], s6["cal_eavg_pow"])[1:] > others[1:])))
+check("Appendix B: screen, e-avg - sym at 5n", s6["cal_eavg_pow"][1] - s6["cal_sym_pow"][1], 0.061)
+intex("$0.101$ to $0.116$")
+
+print("§7.2 which combiner, twenty settings (Figures 2 and 4, ten training sizes each)")
+P = {k: np.concatenate([c6[k + "_cp"], s6["cal_%s_pow" % k]]) for k in ("pmerge", "bonf", "eavg")}
+lead = np.max(np.stack(list(P.values())), axis=0)
+check("max shortfall e-avg vs leader, twenty settings", (lead - P["eavg"]).max(), 0.040)
+check("max shortfall Bonferroni vs leader, twenty settings", (lead - P["bonf"]).max(), 0.076)
+check("max shortfall p-merge vs leader, twenty settings", (lead - P["pmerge"]).max(), 0.212)
+rank = (np.stack([P["pmerge"], P["bonf"]]) > P["eavg"]).sum(0) + 1
+claim("e-avg second in 13 and first in 7 of the twenty, never last",
+      int((rank == 2).sum()) == 13 and int((rank == 1).sum()) == 7 and int((rank == 3).sum()) == 0)
+sl = np.argmax(np.stack([s6["cal_%s_pow" % k] for k in ("pmerge", "bonf", "eavg")]), axis=0)
+claim("Bonferroni leads the screen exactly from 8n on", list(np.flatnonzero(sl == 1)) == list(range(4, 10)))
+intex("thirteen of the twenty\nsettings and first in the remaining seven")
+
+print("Appendix B, Table B.1 (results_estimation_grid_*.npz)")
+G = {d: np.load("results_estimation_grid_%s.npz" % d) for d in ("two", "one", "all")}
+for r in table_estimation_grid.rows():
+    intex(r)
+claim("Table B.1: comparator is the stronger baseline at every N_tr",
+      bool(np.all(G["two"]["pow_sym"] >= G["two"]["pow_chi2"]) and np.all(G["one"]["pow_sym"] >= G["one"]["pow_chi2"])
+           and np.all(G["all"]["pow_chi2"] >= G["all"]["pow_sym"])))
+claim("Table B.1: sym and chi2 tied at known F for two coordinates",
+      abs(G["two"]["pow_sym"][-1] - G["two"]["pow_chi2"][-1]) < 0.0005)
+def gap(d, mult):
+    a = G[d]; b = "chi2" if d == "all" else "sym"; i = int(np.flatnonzero(a["Ntr"] == mult * int(a["n"]))[0])
+    return a["gap_eavg_" + b][i], a["gapse_eavg_" + b][i]
+g4, s4 = gap("two", 4); g5, s5 = gap("two", 5)
+claim("two coordinates: behind at 4n, level at 5n, ahead from 6n",
+      g4 < -2 * s4 and abs(g5) < 2 * s5 and all(gap("two", m)[0] > 2 * gap("two", m)[1] for m in (6, 7, 8, 10, 12, 16, 20, 30)))
+claim("one coordinate: behind at 8n, level at 10n and 12n",
+      gap("one", 8)[0] < -2 * gap("one", 8)[1] and all(abs(gap("one", m)[0]) < 2 * gap("one", m)[1] for m in (10, 12)))
+claim("all coordinates: behind at 10n, level at 12n",
+      gap("all", 10)[0] < -2 * gap("all", 10)[1] and abs(gap("all", 12)[0]) < 2 * gap("all", 12)[1])
+worst = min(gap(d, m)[0] for d in ("two", "one", "all") for m in (8, 10, 12, 16, 20, 30))
+claim("from 8n on no baseline leads by more than 0.01 (worst %+.3f)" % worst, worst >= -0.010)
+
+# ---------------------------------------------------------------- number of orderings (Nov 2026)
+print("§4 / §7.2 how many orderings (results_orderings_evidence.npz, results_number_of_orderings.npz)")
+ev = np.load("results_orderings_evidence.npz")
+NAMES = ("one", "all", "two", "sweep")
+j12 = int(np.flatnonzero(ev["MGRID"] == 12)[0])
+Vbar = [float(ev["Vmean_" + d]) for d in NAMES]
+gain = [float(ev["L_" + d][-1] - ev["L_" + d][0]) for d in NAMES]
+miss = [float(ev["L_" + d][-1] - ev["L_" + d][j12]) for d in NAMES]
+share = [float(ev["share_" + d][j12]) for d in NAMES]
+check("mean spread V, smallest design", min(Vbar), 0.24, 2)
+check("mean spread V, largest design", max(Vbar), 1.16, 2)
+check("log-evidence uncollected at M=12, smallest", min(miss), 0.009)
+check("log-evidence uncollected at M=12, largest", max(miss), 0.054)
+check("share collected at M=12, smallest (%)", 100 * min(share), 86, 0)
+check("share collected at M=12, largest (%)", 100 * max(share), 92, 0)
+check("total order-averaging gain, smallest", min(gain), 0.09, 2)
+check("total order-averaging gain, largest", max(gain), 0.39, 2)
+big = ev["MGRID"] >= 32
+ok = all(np.all(np.abs((ev["L_" + d][-1] - ev["L_" + d])[big & (ev["MGRID"] < ev["MMAX"])]
+                       - float(ev["Vmean_" + d]) / (2 * ev["MGRID"][big & (ev["MGRID"] < ev["MMAX"])])) < 0.002)
+         for d in NAMES)
+claim("uncollected log-evidence within 0.002 of V/(2M) for 32 <= M < 2048", ok)
+claim("expected log-evidence nondecreasing in M in every design",
+      all(np.all(np.diff(ev["L_" + d]) > -2 * ev["Lse_" + d][1:]) for d in NAMES))
+no = np.load("results_number_of_orderings.npz"); Mg = list(no["Mgrid"])
+i = {m: Mg.index(m) for m in (1, 2, 4)}
+check("M sweep e-avg, M=1", no["dep_eavg"][i[1]], 0.720)
+check("M sweep e-avg, M=2", no["dep_eavg"][i[2]], 0.739)
+check("M sweep e-avg, M=4", no["dep_eavg"][i[4]], 0.747)
+check("M sweep e-avg, min over M=8..128", no["dep_eavg"][3:].min(), 0.741)
+check("M sweep e-avg, max over M=8..128", no["dep_eavg"][3:].max(), 0.746)
+check("M sweep Bonferroni, M=1", no["dep_bonf"][i[1]], 0.714)
+check("M sweep Bonferroni, M=4", no["dep_bonf"][i[4]], 0.731)
+check("M sweep Bonferroni, min over M=8..128", no["dep_bonf"][3:].min(), 0.717)
+check("M sweep Bonferroni, max over M=8..128", no["dep_bonf"][3:].max(), 0.727)
+check("M sweep p-merge, M=1", no["dep_pmerge"][i[1]], 0.714)
+check("M sweep p-merge, M=4", no["dep_pmerge"][i[4]], 0.767)
+check("M sweep p-merge, min over M=8..128", no["dep_pmerge"][3:].min(), 0.740)
+check("M sweep p-merge, max over M=8..128", no["dep_pmerge"][3:].max(), 0.762)
+claim("rho=0: every combiner flat in M", all(np.ptp(no["ind_" + k]) < 1e-12 for k in ("pmerge", "bonf", "eavg")))
+intex("lies between $0.24$ and $1.16$")
+intex("$86\\%$ to\n$92\\%$")
+
 print("\nRESULT: %d failure(s)" % fails)
 sys.exit(1 if fails else 0)

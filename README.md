@@ -33,15 +33,29 @@ cd code
 | `exp_base_statistic.py` | one- versus two-sided base statistics | §4, §5, Figure 1 |
 | `exp_calibration_pipeline.py` | naive vs calibrated size, then power, in one setting | Figure 2 |
 | `exp_departure_shape.py` | sparse versus dense departures at equal energy | Figure 3 |
+| `exp_estimation_grid.py` | power under estimation as the training sample grows, by departure shape | Appendix B |
 | `exp_multiplicity_screening.py` | FDR and power when hypotheses fail heterogeneously | Figure 4, §7.1 |
 | `merge_multiplicity_chunks.py` | pools the chunks written above into one archive | Figure 4, §7.1 |
 | `exp_training_size.py` | behaviour as the reference sample shrinks | §6.1 |
-| `exp_number_of_orderings.py` | calibrated power versus the number of orderings $M$ | (background) |
+| `exp_number_of_orderings.py` | calibrated power versus the number of orderings $M$ | §7.2 |
+| `exp_orderings_evidence.py` | expected log-evidence of the e-value average versus $M$, against the $V/(2M)$ rate | §4, §7.2 |
 | `exp_threshold_dependence.py` | why the combiner ranking inverts between a single test and a screen | §7.2 |
 | `exp_sparsity_path.py` | power along the sparse-to-dense path | (background) |
 | `exp_conformal_comparison.py` | comparison with conformal novelty detection and AdaDetect | Table 1, §7.3 |
 | `merge_conformal_chunks.py` | pools the chunks written above into one archive per reference-sample size | Table 1, §7.3 |
 | `exp_conformal_novelty_density.py` | how the crossover with AdaDetect moves with the null proportion | Table 2, §7.3 |
+
+`exp_calibration_pipeline.py` and `exp_multiplicity_screening.py` also have `extra` and `extra2`
+modes for the training sizes added to Figures 2 and 4 ($N_{tr}$ = 5n, 6n, 7n and 12n, 16n, 24n,
+32n), run under separate seeds so the original columns are untouched:
+`python exp_calibration_pipeline.py extra` (or `extra2`) writes
+`results_calibration_pipeline_extra.npz` (`_extra2.npz`); `python exp_multiplicity_screening.py 100
+501 extra` and `... 100 502 extra` (seeds 601 and 602 for `extra2`), then
+`python merge_multiplicity_chunks.py extra` (or `extra2`), write
+`results_multiplicity_screening_extra.npz` (`_extra2.npz`). The two figure scripts merge the
+archives and plot the training size on a log scale, log2(N_tr / n), with known F after a break.
+`exp_estimation_grid.py` takes a design (`two`, `one` or `all`) and writes
+`results_estimation_grid_<design>.npz`.
 
 `exp_departure_shape.py` takes a mode argument: `alt` (sparse vs dense), `rho` (dependence sweep),
 `n` (dimension sweep). It writes `results_shape_<mode>.npz`; the `alt` archive is stored in
