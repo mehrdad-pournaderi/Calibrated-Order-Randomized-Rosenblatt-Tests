@@ -521,16 +521,74 @@ intex("lies between $0.24$ and $1.16$")
 intex("$86\\%$ to $92\\%$ of the incremental")
 
 # ---------------------------------------------------------------- decision stability (Nov 2026)
-print("§7.2 decision stability (results_decision_stability.npz)")
-ds = np.load("results_decision_stability.npz"); Mg = list(ds["MGRID"]); e = list(ds["keys"]).index("eavg")
-for name, h, m, q in (("one", "alt", 12, 3.3), ("all", "alt", 12, 6.2), ("one", "null", 12, 1.4),
-                      ("all", "null", 12, 1.3), ("one", "alt", 1, 12.6), ("all", "alt", 1, 18.4)):
-    check("disagreement %%, e-avg, %s, %s, M=%d" % (name, h, m), 100 * ds["dis_%s_%s" % (h, name)][e][Mg.index(m)], q, 1)
-ratios = [ds["dis_%s_%s" % (h, nm)][e][Mg.index(12)] / ds["dis_%s_%s" % (h, nm)][e][Mg.index(128)]
-          for nm in ("one", "all") for h in ("alt", "null")]
-claim("M=128 roughly halves the M=12 disagreement (ratios %.1f-%.1f)" % (min(ratios), max(ratios)),
-      all(1.7 <= r <= 2.5 for r in ratios))
-intex("$3.3\\%$ of observations")
+print("§4 / §7.2 decision stability (results_decision_stability_shared.npz; whole procedure: results_decision_stability.npz)")
+dsh = np.load("results_decision_stability_shared.npz"); ds = np.load("results_decision_stability.npz")
+Mg = list(dsh["MGRID"]); e = list(dsh["keys"]).index("eavg")
+dis = lambda d, h, nm, m: 100 * d["dis_%s_%s" % (h, nm)][e][Mg.index(m)]
+for name, h, m, q in (("one", "alt", 12, 2.9), ("all", "alt", 12, 6.2), ("one", "null", 12, 1.3), ("all", "null", 12, 1.3),
+                      ("one", "alt", 1, 12.1), ("all", "alt", 1, 18.4), ("one", "alt", 128, 1.0), ("all", "alt", 128, 1.8),
+                      ("one", "null", 128, 0.5), ("all", "null", 128, 0.4)):
+    check("shared calibration: disagreement %%, %s, %s, M=%d" % (name, h, m), dis(dsh, h, name, m), q, 1)
+claim("shared calibration: still falling from M=64 to M=128 in all four cases",
+      all(dis(dsh, h, nm, 64) > dis(dsh, h, nm, 128) for nm in ("one", "all") for h in ("alt", "null")))
+ratios = [dis(dsh, h, nm, 12) / dis(dsh, h, nm, 128) for nm in ("one", "all") for h in ("alt", "null")]
+claim("shared calibration: M=12 to 128 cuts disagreement by 2.5-4 (sqrt(128/12)=3.3; got %.1f-%.1f)" % (min(ratios), max(ratios)),
+      all(2.5 <= r <= 4.0 for r in ratios))
+for name, h, q in (("one", "alt", 3.3), ("all", "alt", 6.2), ("one", "null", 1.4), ("all", "null", 1.3)):
+    check("independent calibration: disagreement %%, %s, %s, M=12" % (name, h), dis(ds, h, name, 12), q, 1)
+# disagreement of two independent rank calibrations of one continuous statistic under the null
+import math
+Bc, ac = int(ds["B"]), float(ds["alpha"]); kc = int(round(ac * (Bc + 1))) - 1
+lc = np.array([math.lgamma(Bc + 1) - math.lgamma(j + 1) - math.lgamma(Bc - j + 1) for j in range(kc + 1)])
+u = np.linspace(1e-9, 0.2, 40001)                  # 2p(1-p) is negligible beyond u = 0.2
+pr = np.exp(lc[None, :] + np.arange(kc + 1)[None, :] * np.log(u)[:, None]
+            + (Bc - np.arange(kc + 1))[None, :] * np.log1p(-u)[:, None]).sum(1)
+f2 = 2 * pr * (1 - pr)
+check("two independent calibrations alone, null disagreement %", 100 * float(((f2[1:] + f2[:-1]) / 2 * np.diff(u)).sum()), 0.55, 2)
+intex("\\addD{$2.9\\%$} of observations")
+intex("fall to $1.0\\%$,\n$1.8\\%$, $0.5\\%$ and $0.4\\%$")
+intex("about $0.55\\%$ under the null at $B=1999$, and gives $3.3\\%$, $6.2\\%$,\n$1.4\\%$ and $1.3\\%$")
+
+# ---------------------------------------------------------------- fixed ridge (Nov 2026)
+print("§3.3 fixed ridge: Figure 2 rerun without it (results_calibration_pipeline*_exact_noridge.npz)")
+mxs = mxp = 0.0
+for suf in ("", "_extra"):
+    rr = np.load("results_calibration_pipeline%s_exact.npz" % suf); nr = np.load("results_calibration_pipeline%s_exact_noridge.npz" % suf)
+    for k in ("single_x", "pmerge_x", "bonf_x", "fisher_x", "eavg_x", "e1_x", "chi2", "sym"):
+        mxs = max(mxs, np.abs(rr[k + "_cs"] - nr[k + "_cs"]).max()); mxp = max(mxp, np.abs(rr[k + "_cp"] - nr[k + "_cp"]).max())
+claim("no calibrated size moves by more than 0.001 (%.4f)" % mxs, mxs <= 0.001)
+claim("no power moves by more than about 0.002 (%.4f)" % mxp, round(mxp, 3) <= 0.002)
+intex("changes no calibrated size by more than $0.001$\nand no power by more than about $0.002$")
+
+# ---------------------------------------------------------------- review round 3 (Nov 2026): sizes behind the matched-size claims
+c10 = merged("results_calibration_pipeline_exact.npz", "results_calibration_pipeline_extra_exact.npz",
+             "results_calibration_pipeline_extra2_exact.npz")
+check("Fig 2: p-merge calibrated size at 4n", c10["pmerge_x_cs"][0], 0.058)
+check("Fig 2: p-merge calibrated size at 5n", c10["pmerge_x_cs"][1], 0.060)
+check("Fig 2: symmetric-root calibrated size at 4n", c10["sym_cs"][0], 0.049)
+check("Fig 2: symmetric-root calibrated size at 5n", c10["sym_cs"][1], 0.053)
+check("Fig 2: e-avg calibrated size, min", c10["eavg_x_cs"].min(), 0.046)
+check("Fig 2: e-avg calibrated size, max", c10["eavg_x_cs"].max(), 0.053)
+claim("Fig 2: e-avg beats both references at every training size",
+      bool(np.all(c10["eavg_x_cp"] > np.maximum(c10["sym_cp"], c10["chi2_cp"]))))
+# abstract: under estimation the comparisons hold except deficits <= 0.02 vs sym on single-coordinate departures
+ax2, rx2, nx2 = (np.load(f) for f in ("results_shape_sparse_dense_exact.npz", "results_shape_rho_exact.npz", "results_shape_n_exact.npz"))
+g1 = np.load("results_estimation_grid_one_exact.npz"); g2 = np.load("results_estimation_grid_two_exact.npz"); g3 = np.load("results_estimation_grid_all_exact.npz")
+deficit = max(-ax2["geavg_x_sym_s"][0], *(-rx2["geavg_x_sym_s"]), *(-nx2["geavg_x_sym_s"]), *(-g1["gap_eavg_x_sym"]))
+claim("abstract: single-coordinate deficits vs sym at most 0.02 (%.3f)" % deficit, deficit <= 0.02)
+others_ok = (ax2["geavg_x_sym_s"][1] > 0 and np.all(g2["gap_eavg_x_sym"] > 0) and np.all(g3["gap_eavg_x_chi2"] > 0)
+             and np.all(ax2["geavg_x_chi2_s"] > 0) and np.all(rx2["geavg_x_chi2_s"] > 0) and np.all(nx2["geavg_x_chi2_s"] > 0)
+             and np.all(g1["gap_eavg_x_chi2"] > 0) and np.all(g2["gap_eavg_x_chi2"] > 0))
+claim("abstract: e-avg ahead of chi2 everywhere and of sym away from single-coordinate departures", bool(others_ok))
+intex("deficits of at most $0.02$ against the symmetric-root test on single-coordinate departures")
+if tex is not None:                                   # JSPI limit: at most 200 words in the abstract
+    import re
+    ab = tex[tex.index("\\begin{abstract}") + 16: tex.index("\\end{abstract}")]
+    ab = re.sub(r"\\(delD|delC)\{[^{}]*\}", "", ab)       # struck text is not part of the abstract
+    ab = re.sub(r"\\(begin|end)\{[^{}]*\}", "", ab)
+    ab = re.sub(r"\$[^$]*\$", "X", ab); ab = re.sub(r"\\[a-zA-Z]+", "", ab); ab = re.sub(r"[{}~]", " ", ab)
+    nw = len(ab.split()); nh = len(ab.replace("-", " ").split())
+    claim("abstract at most 200 words (%d; %d counting hyphenated parts separately)" % (nw, nh), nh <= 200)
 
 print("\nRESULT: %d failure(s)" % fails)
 sys.exit(1 if fails else 0)

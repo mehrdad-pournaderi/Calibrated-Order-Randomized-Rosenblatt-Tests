@@ -12,8 +12,15 @@ are across realizations.
 
 Designs (known F, ncp = 12): `one` is the M-sweep design (n=10, rho=0.6, one shifted coordinate);
 `all` shifts all coordinates of an n=10, rho=0.5 vector (the dense design of Figure 3).
-Usage: python exp_decision_stability.py  ->  results_decision_stability.npz
+Usage: python exp_decision_stability.py         ->  results_decision_stability.npz
+       python exp_decision_stability.py shared  ->  results_decision_stability_shared.npz
+The plain run calibrates each bank on its own null draws, so the two decisions differ through the
+orderings AND the calibration sample (the whole randomized procedure; two independent calibrations of
+one continuous statistic alone disagree on about 0.55% of null observations at B = 1999).  With
+`shared`, both banks are calibrated on the same null draws (each with its own orderings), so the
+decisions differ only through the orderings; the paper quotes this version.
 """
+import sys
 import numpy as np
 from scipy import stats
 from scipy.special import logsumexp
@@ -24,6 +31,7 @@ MGRID = np.array([1, 2, 4, 8, 12, 16, 32, 64, 128]); MMAX = int(MGRID[-1])
 B, NTE, R = 1999, 200, 200
 DESIGNS = [("one", 10, 0.6, 1, 2201), ("all", 10, 0.5, 10, 2202)]
 KEYS = ("eavg", "pmerge", "bonf", "eavg_nominal")
+SHARED = "shared" in sys.argv[1:]
 
 
 def per_order(X, perms, Li, n):
@@ -55,9 +63,10 @@ def run(n, rho, k, seed):
     for r in range(R):
         Xt = {"alt": mu + rng.standard_normal((NTE, n)) @ L.T, "null": rng.standard_normal((NTE, n)) @ L.T}
         dec = {}
+        Xc = rng.standard_normal((B, n)) @ L.T if SHARED else None   # shared calibration draws
         for bank in (0, 1):
             perms = np.argsort(rng.random((MMAX, n)), axis=1)
-            Pn, lEn = per_order(rng.standard_normal((B, n)) @ L.T, perms, Li, n)
+            Pn, lEn = per_order(Xc if SHARED else rng.standard_normal((B, n)) @ L.T, perms, Li, n)
             obs = {h: per_order(Xt[h], perms, Li, n) for h in Xt}
             for j, M in enumerate(MGRID):
                 sn = stats_M(Pn, lEn, int(M))
@@ -87,5 +96,6 @@ if __name__ == "__main__":
         for i, key in enumerate(KEYS):
             print("   %-13s alt " % key + " ".join("%6.3f" % v for v in out[f"dis_alt_{name}"][i]))
             print("   %-13s null" % "" + " ".join("%6.3f" % v for v in out[f"dis_null_{name}"][i]))
-    np.savez("results_decision_stability.npz", **out)
-    print("saved results_decision_stability.npz")
+    fn = "results_decision_stability%s.npz" % ("_shared" if SHARED else "")
+    np.savez(fn, **out)
+    print("saved " + fn)

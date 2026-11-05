@@ -27,8 +27,11 @@ MODES = {"": ([80, 160, 0], 1111), "extra": ([100, 120, 140], 1888),
 # The argument `exact` (with or without a mode) adds the exact predictive components of
 # exact_whitening.py, computed on the same draws (ridge-free training covariance) and reported
 # under the keys <method>_x next to the unchanged plug-in keys, in ..._exact.npz.
-ARGS = [a for a in sys.argv[1:] if a != "exact"]
-EXACT = len(ARGS) < len(sys.argv) - 1
+# The argument `noridge` removes the fixed ridge 1e-3 I from every covariance estimate, including the
+# one the bootstrap simulates from (a check on the numerical device; writes ..._noridge.npz).
+ARGS = [a for a in sys.argv[1:] if a not in ("exact", "noridge")]
+EXACT = "exact" in sys.argv[1:]
+NORIDGE = "noridge" in sys.argv[1:]
 MODE = ARGS[0] if ARGS else ""
 rng = np.random.default_rng(MODES[MODE][1])
 ALPHA = 0.05; LOG2 = np.log(2.0); TAUS = np.array([1.0, 2.0, 3.0])
@@ -40,7 +43,7 @@ S = np.full((N, N), RHO); np.fill_diagonal(S, 1.0)
 Sinv_true = np.linalg.inv(S)
 v = np.zeros(N); v[:K] = 1.0
 MU = v * np.sqrt(NCP / (v @ Sinv_true @ v))
-idx = np.arange(1, N + 1); ridge = 1e-3 * np.eye(N)
+idx = np.arange(1, N + 1); ridge = (0.0 if NORIDGE else 1e-3) * np.eye(N)
 FCRIT = stats.chi2.isf(ALPHA, 2 * N); CCRIT = stats.chi2.isf(ALPHA, N)
 
 
@@ -150,7 +153,8 @@ for Ntr in NTR_GRID:
         print("    %-7s naive=%.3f cal-size=%.3f cal-POWER=%.3f"
               % (k, acc[k]["ns"] / R, acc[k]["cs"] / R, acc[k]["cp"] / R))
 
-np.savez("results_calibration_pipeline%s%s.npz" % ("_" + MODE if MODE else "", "_exact" if EXACT else ""), Ntr=np.array([g if g else 100000 for g in NTR_GRID]),
+np.savez("results_calibration_pipeline%s%s%s.npz" % ("_" + MODE if MODE else "", "_exact" if EXACT else "",
+                                                     "_noridge" if NORIDGE else ""), Ntr=np.array([g if g else 100000 for g in NTR_GRID]),
          **{f"{k}_{m}": np.array(OUT[k][m]) for k in ALLK for m in ("ns", "cs", "cp")},
          alpha=ALPHA, ncp=NCP, n=N, M=M, rho=RHO, k=K)
 print("saved sim11.npz")

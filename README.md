@@ -81,6 +81,16 @@ then `merge_conformal_chunks.py ntr 400 1000 2000 exact` or `... pi0 80 90 95 ex
 conformal scripts skip the conformal scores in this mode, since those do not depend on the
 whitening, and also store e-BH on the uncalibrated exact e-values (`eavg_x_ebh`).
 
+Two further options back statements in the paper. `python exp_calibration_pipeline.py exact
+noridge` (and `extra exact noridge`) removes the fixed ridge 1e-3 I from every covariance estimate,
+including the one the bootstrap simulates from (`..._exact_noridge.npz`; §3.3). `python
+exp_decision_stability.py shared` calibrates both banks of orderings on the same null draws, so the
+two decisions differ only through the orderings (`results_decision_stability_shared.npz`, the
+version §7.2 quotes); without `shared` each bank has its own calibration sample, which measures the
+whole randomized procedure. The screening and conformal scripts calibrate the uncapped merger
+summaries; the archives were produced with the capped forms, and the uncapped summaries reproduce
+every BH decision on the same draws, so the archives are unchanged.
+
 `exp_departure_shape.py` takes a mode argument: `alt` (sparse vs dense), `rho` (dependence sweep),
 `n` (dimension sweep). It writes `results_shape_<mode>.npz`; the `alt` archive is stored in
 `results/` as `results_shape_sparse_dense.npz`, the name `fig3_departure_shape.py` reads.

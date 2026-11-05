@@ -72,8 +72,10 @@ def order_stats(Z):
     Ps = simes2(Z); Mn = Z.shape[-2]
     terms = np.stack([-0.5 * t * t + logcosh(t * Z) for t in TAUS])
     lE = logsumexp(terms, axis=(0, -1)) - (np.log(N) + np.log(len(TAUS)))
-    return dict(pmerge=np.minimum(2 * Ps.mean(-1), 1.0),
-                bonf=np.minimum(Mn * Ps.min(-1), 1.0),
+    # uncapped merger summaries (Nov 2026); the archives were produced with the capped forms
+    # min{1, .}, and the uncapped summaries reproduce every BH decision on the same draws
+    return dict(pmerge=2 * Ps.mean(-1),
+                bonf=Mn * Ps.min(-1),
                 eavg=np.exp(logsumexp(lE, -1) - np.log(Mn)))
 
 

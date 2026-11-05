@@ -59,11 +59,14 @@ def invsqrt(Sb):
 
 
 def order_stats(Z):
+    """Uncapped merger summaries (Nov 2026): the archives were produced with the capped forms
+    min{1, .}; calibrating the uncapped summaries on the same draws reproduces every BH decision in
+    every replication (checked at all ten training sizes, plug-in and exact), so they are unchanged."""
     Ps = simes2(Z); Mn = Z.shape[-2]
     terms = np.stack([-0.5 * t * t + logcosh(t * Z) for t in TAUS])
     lE = logsumexp(terms, axis=(0, -1)) - (np.log(N) + np.log(len(TAUS)))
-    return dict(single=Ps[..., 0], pmerge=np.minimum(2 * Ps.mean(-1), 1.0),
-                bonf=np.minimum(Mn * Ps.min(-1), 1.0),
+    return dict(single=Ps[..., 0], pmerge=2 * Ps.mean(-1),
+                bonf=Mn * Ps.min(-1),
                 eavg=np.exp(logsumexp(lE, -1) - np.log(Mn)))
 
 
