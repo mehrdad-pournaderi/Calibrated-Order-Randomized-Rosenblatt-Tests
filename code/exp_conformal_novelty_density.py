@@ -20,8 +20,10 @@ nearest-neighbour score, calibration size l = N_tr/2 for the one-class scores, a
 AdaDetect, the value recommended in its authors' Remark 2.2 (a balanced split would halve the
 sample available to train its classifier).
 
-Usage: python exp_conformal_novelty_density.py pi0 [R] [seed]      (pi0 as a percentage, e.g. 95)
-       then: python merge_conformal_chunks.py pi0 80 90 95
+Usage: python exp_conformal_novelty_density.py pi0 [R] [seed] [exact]   (pi0 as a percentage, e.g. 95)
+       then: python merge_conformal_chunks.py pi0 80 90 95 [exact]
+  `exact`: as in exp_conformal_comparison.py (exact predictive components for this paper's tests,
+  conformal scores skipped); writes chunk_conformal_pi0<pi0>_exact_s<seed>.npz.
 """
 import sys
 import numpy as np
@@ -44,6 +46,18 @@ Sinv = np.linalg.inv(S); Lt = np.linalg.cholesky(S)
 
 OURS = ["pmerge", "bonf", "eavg", "chi2"]
 CONF = ["mahal", "kde", "ada-rf", "ada-lr"] + ["knn:%d" % k for k in KNN_GRID]
+EXACT = "exact" in sys.argv[1:]
+OURS_X = ["pmerge_x", "bonf_x", "eavg_x", "eavg_x_ebh"] if EXACT else []
+if EXACT:
+    from exact_whitening import exact_scores, perm_chol_inv
+
+
+def ebh(e, q):
+    m = len(e); o = np.argsort(-e)
+    ok = np.where(np.arange(1, m + 1) * e[o] >= m / q)[0]
+    r = np.zeros(m, bool)
+    if len(ok): r[o[:ok.max() + 1]] = True
+    return r
 
 
 def logcosh(x): return np.logaddexp(x, -x) - LOG2
@@ -118,7 +132,7 @@ def run(pi0, R):
     MU[n_null:n_null + n_alt // 2] = v_sp * np.sqrt(NCP / (v_sp @ Sinv @ v_sp))
     MU[n_null + n_alt // 2:] = np.ones(N) * np.sqrt(NCP / (np.ones(N) @ Sinv @ np.ones(N)))
 
-    acc_ours = {k: [] for k in OURS}
+    acc_ours = {k: [] for k in OURS + OURS_X}
     acc_conf = {l: {k: [] for k in CONF} for l in LGRID}
 
     for _ in range(R):
@@ -127,27 +141,35 @@ def run(pi0, R):
         ref = rng.standard_normal((NTR, N)) @ Lt.T
         X = MU + rng.standard_normal((NUNITS, N)) @ Lt.T
 
-        Shat = ref.T @ ref / NTR + ridge; Lc = np.linalg.cholesky(Shat)
+        G = ref.T @ ref / NTR; Shat = G + ridge; Lc = np.linalg.cholesky(Shat)
         Li = np.linalg.inv(np.linalg.cholesky(Shat[pidx])); Sih = np.linalg.inv(Shat)
-        pool = {k: [] for k in OURS}
+        pool = {k: [] for k in OURS + OURS_X[:3]}
         for s in range(0, B, BCHUNK):
             b = min(BCHUNK, B - s)
-            Sst = wishart_cov(Lc, NTR, b) + ridge
+            G0 = wishart_cov(Lc, NTR, b); Sst = G0 + ridge
             Lst = np.linalg.inv(np.linalg.cholesky(Sst[:, perms[:, :, None], perms[:, None, :]]))
             Vc = rng.standard_normal((b, N)) @ Lc.T
             bs = order_stats(np.einsum('bmij,bmj->bmi', Lst, Vc[:, perms]))
             bs["chi2"] = np.einsum('bi,bij,bj->b', Vc, np.linalg.inv(Sst), Vc)
-            for k in OURS: pool[k].append(bs[k])
+            if EXACT:
+                bx = order_stats(exact_scores(np.einsum('bmij,bmj->bmi', perm_chol_inv(G0, perms), Vc[:, perms]), NTR))
+                bs.update({k + "_x": v for k, v in bx.items()})
+            for k in OURS + OURS_X[:3]: pool[k].append(bs[k])
         boot = {k: np.sort(np.concatenate(v)) for k, v in pool.items()}
         st = order_stats(np.einsum('mij,kmj->kmi', Li, X[:, perms]))
         st["chi2"] = np.einsum('ki,ij,kj->k', X, Sih, X)
-        for k in OURS:
-            cnt = (B - np.searchsorted(boot[k], st[k], side="left")) if k in ("eavg", "chi2") \
+        if EXACT:
+            sx = order_stats(exact_scores(np.einsum('mij,kmj->kmi', perm_chol_inv(G, perms), X[:, perms]), NTR))
+            st.update({k + "_x": v for k, v in sx.items()})
+            r = ebh(st["eavg_x"], Q)                     # uncalibrated exact e-values: valid e-BH
+            acc_ours["eavg_x_ebh"].append((np.sum(r & ~truth) / max(r.sum(), 1), np.sum(r & truth) / n_alt))
+        for k in OURS + OURS_X[:3]:
+            cnt = (B - np.searchsorted(boot[k], st[k], side="left")) if k in ("eavg", "chi2", "eavg_x") \
                 else np.searchsorted(boot[k], st[k], side="right")
             r = bh((1 + cnt) / (B + 1), Q)
             acc_ours[k].append((np.sum(r & ~truth) / max(r.sum(), 1), np.sum(r & truth) / n_alt))
 
-        for l in LGRID:
+        for l in ([] if EXACT else LGRID):              # exact mode: conformal rows unchanged
             fit, cal = ref[:NTR - l], ref[NTR - l:]
             Sfi = np.linalg.inv(fit.T @ fit / len(fit) + ridge)
             mah = lambda Y: np.einsum('ki,ij,kj->k', Y, Sfi, Y)
@@ -165,28 +187,30 @@ def run(pi0, R):
                 acc_conf[l][k].append((np.sum(r & ~truth) / max(r.sum(), 1),
                                        np.sum(r & truth) / n_alt))
 
-    raw = {k: np.asarray(acc_ours[k]) for k in OURS}
-    raw.update({"%s@%d" % (k, l): np.asarray(acc_conf[l][k]) for l in LGRID for k in CONF})
+    raw = {k: np.asarray(acc_ours[k]) for k in OURS + OURS_X}
+    if not EXACT:
+        raw.update({"%s@%d" % (k, l): np.asarray(acc_conf[l][k]) for l in LGRID for k in CONF})
     return raw, n_alt
 
 
-pi0_pct = int(sys.argv[1]) if len(sys.argv) > 1 else 95
-R = int(sys.argv[2]) if len(sys.argv) > 2 else R_DEFAULT
-seed = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+ARGS = [a for a in sys.argv[1:] if a != "exact"]
+pi0_pct = int(ARGS[0]) if len(ARGS) > 0 else 95
+R = int(ARGS[1]) if len(ARGS) > 1 else R_DEFAULT
+seed = int(ARGS[2]) if len(ARGS) > 2 else 0
 rng = np.random.default_rng(4711 + 1000 * seed)
 
 raw, n_alt = run(pi0_pct / 100.0, R)
 print("Novelty-density sweep: N_tr=%d FIXED, n=%d, %d hypotheses, ncp=%.0f, q=%.2f, M=%d, B=%d"
       % (NTR, N, NUNITS, NCP, Q, M, B))
 print("pi_0=%.2f (%d novelties)  chunk seed=%d  R=%d" % (pi0_pct / 100.0, n_alt, seed, R))
-for k in OURS:
+for k in OURS + OURS_X:
     a = raw[k]; print("   %-8s FDR=%.3f  power=%.3f" % (k, a[:, 0].mean(), a[:, 1].mean()))
-for k in CONF:
+for k in ([] if EXACT else CONF):
     best = max(LGRID, key=lambda l: raw["%s@%d" % (k, l)][:, 1].mean())
     a = raw["%s@%d" % (k, best)]
     print("   %-8s FDR=%.3f  power=%.3f   (l=%d)" % (k, a[:, 0].mean(), a[:, 1].mean(), best))
 
-fn = "chunk_conformal_pi0%d_s%d.npz" % (pi0_pct, seed)
+fn = "chunk_conformal_pi0%d%s_s%d.npz" % (pi0_pct, "_exact" if EXACT else "", seed)
 np.savez(fn, ntr=NTR, pi0=pi0_pct / 100.0, n_alt=n_alt, lgrid=np.array(LGRID), R=R, seed=seed,
          q=Q, n=N, nunits=NUNITS, ncp=NCP, M=M, B=B, **raw)
 print("saved " + fn)

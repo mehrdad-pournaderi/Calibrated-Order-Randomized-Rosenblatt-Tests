@@ -37,8 +37,9 @@ cd code
 | `exp_multiplicity_screening.py` | FDR and power when hypotheses fail heterogeneously | Figure 4, §7.1 |
 | `merge_multiplicity_chunks.py` | pools the chunks written above into one archive | Figure 4, §7.1 |
 | `exp_training_size.py` | behaviour as the reference sample shrinks | §6.1 |
-| `exp_number_of_orderings.py` | calibrated power versus the number of orderings $M$ | §7.2 |
+| `exp_number_of_orderings.py` | calibrated power versus the number of orderings $M$ (fresh orderings in every realization) | §7.2 |
 | `exp_orderings_evidence.py` | expected log-evidence of the e-value average versus $M$, against the $V/(2M)$ rate | §4, §7.2 |
+| `exp_decision_stability.py` | how often two independent sets of $M$ orderings reach different decisions | §4, §7.2 |
 | `exp_threshold_dependence.py` | why the combiner ranking inverts between a single test and a screen | §7.2 |
 | `exp_sparsity_path.py` | power along the sparse-to-dense path | (background) |
 | `exp_conformal_comparison.py` | comparison with conformal novelty detection and AdaDetect | Table 1, §7.3 |
@@ -56,6 +57,29 @@ modes for the training sizes added to Figures 2 and 4 ($N_{tr}$ = 5n, 6n, 7n and
 archives and plot the training size on a log scale, log2(N_tr / n), with known F after a break.
 `exp_estimation_grid.py` takes a design (`two`, `one` or `all`) and writes
 `results_estimation_grid_<design>.npz`.
+
+**Exact predictive components (the paper's procedure under an estimated null).** The paper's Figures 2, 4 and 5, Table 1, Table B.1 and the quoted estimated-null numbers come from the `exact` archives described here; the plug-in numbers it quotes for comparison are the plug-in keys of the same archives.
+`exact_whitening.py` replaces each plug-in Rosenblatt component under an estimated Gaussian null by
+its exact predictive counterpart: the studentized one-step prediction error, mapped through its
+t distribution, which is i.i.d. N(0, 1) under the null for every training size (run the file for a
+simulation check). Adding the argument `exact` to `exp_calibration_pipeline.py`,
+`exp_multiplicity_screening.py` (and to `merge_multiplicity_chunks.py`) or `exp_estimation_grid.py`
+computes these next to the plug-in components on the same draws, under the keys `<method>_x`, and
+writes `..._exact.npz` (`chunk_multiplicity[_<mode>]_exact_s<seed>.npz` for the chunks); the
+plug-in keys in those archives equal the archives above exactly. `python
+fig2_calibration_pipeline.py exact`, `python fig4_multiplicity_screening.py exact` and `python
+table_estimation_grid.py exact` draw the same figures and table rows from them
+(`bootstrap_recalibrated_exact.png`, `estimated_F_exact.png`). `python app_fx_risk_model.py exact`
+does the same for the FX application under the estimated-population null, with the mean estimated
+as well (t laws with N - k degrees of freedom), and also stores the uncalibrated exact tests and
+e-BH on the exact e-values, both valid under that null, in `results_fx_application_exact.npz`;
+`python fig5_fx_application.py exact` draws `fx_application_exact.png`. The same argument works
+for `exp_departure_shape.py <mode> exact` (`results_shape_<mode>_exact.npz`; the `alt` archive is
+stored as `results_shape_sparse_dense_exact.npz`), `exp_training_size.py exact`, and
+`exp_conformal_comparison.py` / `exp_conformal_novelty_density.py` (append `exact` after the seed,
+then `merge_conformal_chunks.py ntr 400 1000 2000 exact` or `... pi0 80 90 95 exact`); the
+conformal scripts skip the conformal scores in this mode, since those do not depend on the
+whitening, and also store e-BH on the uncalibrated exact e-values (`eavg_x_ebh`).
 
 `exp_departure_shape.py` takes a mode argument: `alt` (sparse vs dense), `rho` (dependence sweep),
 `n` (dimension sweep). It writes `results_shape_<mode>.npz`; the `alt` archive is stored in
@@ -87,19 +111,20 @@ Monte-Carlo standard errors are exact too. The two conformal scripts are the onl
 **Application and figures:**
 
 ```bash
-python app_fx_risk_model.py       # foreign-exchange validation -> Figure 5 (reads fx_DEX*.csv from the working directory; copy data/*.csv into code/ first)
+python app_fx_risk_model.py exact # foreign-exchange validation -> Figure 5 (reads fx_DEX*.csv from the working directory; copy data/*.csv into code/ first)
 python fig1_two_sided_blindspot.py
-python fig2_calibration_pipeline.py
+python fig2_calibration_pipeline.py exact
 python fig3_departure_shape.py
-python fig4_multiplicity_screening.py
-python fig5_fx_application.py
+python fig4_multiplicity_screening.py exact
+python fig5_fx_application.py exact
 python fig_orbit_exact.py         # exact-orbit figure (background; not in the paper)
 ```
 
 Figure scripts read the `.npz` archives; copy `results/*.npz` into `code/` (or run from `results/`)
 to rebuild the figures without re-running the simulations. Every script fixes an integer seed and
 avoids process-dependent randomness, so reruns reproduce the published numbers exactly — the five
-figures regenerate byte-for-byte from the archives in `results/`.
+figures regenerate byte-for-byte from the archives in `results/`. With `exact`, Figures 2, 4 and 5
+are written as `*_exact.png` (the paper's versions); without it the scripts draw the plug-in versions.
 
 ## Two implementation details worth knowing
 

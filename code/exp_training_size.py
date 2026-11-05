@@ -25,7 +25,11 @@ Pipeline (per realization):
      -> calibrated critical value per method;  evaluate on fresh null/alt test batches.
 Methods (two-sided base): single random order (Simes), p-merge, Bonferroni/orders,
 e-value avg, chi2 (order-invariant), sym (order-invariant).
+Optional argument `exact`: adds the exact predictive components of exact_whitening.py on the same
+draws (ridge-free training covariance), under the keys <method>_x, with the paired exact-minus-
+plug-in gaps, in results_training_size_exact.npz.
 """
+import sys
 import numpy as np
 from scipy import stats
 from scipy.special import logsumexp
@@ -92,6 +96,13 @@ PKEYS = ["single", "pmerge", "bonf", "sym", "fisher", "pmerge_f", "bonf_f"]  # s
 EKEYS = ["eavg", "chi2"]                                                     # large = extreme
 ALLK = ["single", "pmerge", "bonf", "eavg", "chi2", "sym", "fisher", "pmerge_f", "bonf_f"]
 CHI2_CRIT = stats.chi2.isf(ALPHA, N)
+EXACT = "exact" in sys.argv[1:]
+XK = ["single", "pmerge", "bonf", "eavg", "fisher", "pmerge_f", "bonf_f"]    # Rosenblatt-based
+if EXACT:
+    from exact_whitening import exact_scores
+    PKEYS = PKEYS + [k + "_x" for k in XK if k in PKEYS]
+    EKEYS = EKEYS + [k + "_x" for k in XK if k in EKEYS]
+    ALLK = ALLK + [k + "_x" for k in XK]
 
 
 def naive_reject(st):
@@ -99,7 +110,9 @@ def naive_reject(st):
                 bonf=st["bonf"] < ALPHA, sym=st["sym"] < ALPHA,
                 fisher=st["fisher"] < ALPHA, pmerge_f=st["pmerge_f"] < ALPHA,
                 bonf_f=st["bonf_f"] < ALPHA,
-                eavg=st["eavg"] >= 1 / ALPHA, chi2=st["chi2"] >= CHI2_CRIT)
+                eavg=st["eavg"] >= 1 / ALPHA, chi2=st["chi2"] >= CHI2_CRIT,
+                **({k + "_x": (st[k + "_x"] >= 1 / ALPHA) if k == "eavg" else (st[k + "_x"] < ALPHA)
+                    for k in XK} if EXACT else {}))
 
 
 def mc_low(bootv, obs, alpha):
@@ -131,9 +144,12 @@ def draw(mu, S, k):
     return mu + rng.standard_normal((k, S.shape[0])) @ np.linalg.cholesky(S).T
 
 
-def all_stats(X, Linv_r, Sinv_hat, Wsym, perms):
-    """order stats via Linv_r (M,n,n); chi2 via Sinv_hat; sym via Wsym."""
+def all_stats(X, Linv_r, Sinv_hat, Wsym, perms, Linv0=None, Ntr=0):
+    """order stats via Linv_r (M,n,n); chi2 via Sinv_hat; sym via Wsym; exact mode: Linv0, Ntr."""
     st = order_methods(np.einsum('mij,kmj->kmi', Linv_r, X[:, perms]))
+    if EXACT:
+        sx = order_methods(exact_scores(np.einsum('mij,kmj->kmi', Linv0, X[:, perms]), Ntr))
+        st.update({k + "_x": v for k, v in sx.items()})
     st["chi2"] = np.einsum('ki,ij,kj->k', X, Sinv_hat, X)
     st["sym"] = simes2(X @ Wsym.T, N, idx)
     return st
@@ -143,6 +159,7 @@ Ntr_grid = [40, 80, 160, 0]                     # 0 = known F
 R, B, NTE = 300, 299, 200
 CS = {k: {"csize": [], "cpow": [], "nsize": []} for k in ALLK}
 GAP = {g: {"mean": [], "se": []} for g in ["pm", "ea"]}   # paired vs single
+XGAP = {}                                                  # exact mode: paired gaps
 print("Bootstrap-calibrated comparison v2 (n=%d, M=%d, rho=0.5, ncp=%.0f, alpha=%.2f, R=%d, B=%d)"
       % (N, MORD, NCP, ALPHA, R, B))
 print("  ('single' = fresh random ordering each realization -> expected-ordering power)")
@@ -159,21 +176,27 @@ for Ntr in Ntr_grid:
             boot = order_methods(np.einsum('mij,bmj->bmi', Linv_r, Vc[:, perms]))
             boot["chi2"] = np.einsum('ki,ij,kj->k', Vc, Sinv_hat, Vc)
             boot["sym"] = simes2(Vc @ Wsym.T, N, idx)
+            if EXACT: boot.update({k + "_x": boot[k] for k in XK})       # known F: identical
+            Linv0 = Linv_r
         else:
-            Shat = (lambda Xt: Xt.T @ Xt / Ntr + 1e-3 * np.eye(N))(draw(np.zeros(N), Sigma_true, Ntr))
+            G = (lambda Xt: Xt.T @ Xt / Ntr)(draw(np.zeros(N), Sigma_true, Ntr)); Shat = G + 1e-3 * np.eye(N)
             Linv_r = linv1(Shat, perms)
             Sinv_hat = np.linalg.inv(Shat); Wsym = invsqrt(Shat)
             Xtb = draw(np.zeros(N), Shat, B * Ntr).reshape(B, Ntr, N)
-            Sst = np.einsum('bki,bkj->bij', Xtb, Xtb) / Ntr + 1e-3 * np.eye(N)
+            Gst = np.einsum('bki,bkj->bij', Xtb, Xtb) / Ntr; Sst = Gst + 1e-3 * np.eye(N)
             Lst = linvB(Sst, perms)                       # (B,M,n,n)
             Vc = draw(np.zeros(N), Shat, B)
             boot = order_methods(np.einsum('bmij,bmj->bmi', Lst, Vc[:, perms]))
             boot["chi2"] = np.einsum('bi,bij,bj->b', Vc, np.linalg.inv(Sst), Vc)
             boot["sym"] = simes2(np.einsum('bij,bj->bi', invsqrt(Sst), Vc), N, idx)
+            if EXACT:
+                bx = order_methods(exact_scores(np.einsum('bmij,bmj->bmi', linvB(Gst, perms), Vc[:, perms]), Ntr))
+                boot.update({k + "_x": v for k, v in bx.items()}); Linv0 = linv1(G, perms)
         Xn = draw(np.zeros(N), Sigma_true, NTE)
         Xa = draw(MU, Sigma_true, NTE)
-        nul = all_stats(Xn, Linv_r, Sinv_hat, Wsym, perms)
-        alt = all_stats(Xa, Linv_r, Sinv_hat, Wsym, perms)
+        xa = dict(Linv0=Linv0, Ntr=Ntr) if EXACT else {}
+        nul = all_stats(Xn, Linv_r, Sinv_hat, Wsym, perms, **xa)
+        alt = all_stats(Xa, Linv_r, Sinv_hat, Wsym, perms, **xa)
         ev = evalrej(boot, nul, alt)
         for k in ALLK:
             agg[k]["csize"] += ev[k][0]; agg[k]["cpow"] += ev[k][1]; agg[k]["nsize"] += ev[k][2]
@@ -191,8 +214,18 @@ for Ntr in Ntr_grid:
         GAP[g]["mean"].append(m); GAP[g]["se"].append(s)
         print("     >> gap (%s - single): %.4f +/- %.4f (SE)  [t=%.1f]"
               % (kk, m, s, m / (s + 1e-12)))
+    if EXACT:
+        pairs = [(k + "_x", k) for k in ["single", "pmerge", "bonf", "eavg"]] + \
+                [("eavg", "sym"), ("eavg_x", "sym"), ("eavg", "chi2"), ("eavg_x", "chi2"),
+                 ("pmerge_x", "single_x"), ("eavg_x", "single_x")]
+        for a, b in pairs:
+            diff = np.array(perreal[a]) - np.array(perreal[b])
+            XGAP.setdefault("gap_%s_%s" % (a, b), []).append(float(diff.mean()))
+            XGAP.setdefault("gapse_%s_%s" % (a, b), []).append(float(diff.std(ddof=1) / np.sqrt(R)))
+        print("     >> exact - plug-in: " + "  ".join("%s %+.4f +/- %.4f" % (k, XGAP["gap_%s_x_%s" % (k, k)][-1],
+              XGAP["gapse_%s_x_%s" % (k, k)][-1]) for k in ["single", "pmerge", "bonf", "eavg"]))
 
-np.savez("results_training_size.npz",
+np.savez("results_training_size%s.npz" % ("_exact" if EXACT else ""), **{k: np.array(v) for k, v in XGAP.items()},
          Ntr=np.array([g if g != 0 else 100000 for g in Ntr_grid]),
          **{f"{k}_{m}": np.array(CS[k][m]) for k in ALLK for m in ["csize", "cpow", "nsize"]},
          gap_mean=np.array(GAP["pm"]["mean"]), gap_se=np.array(GAP["pm"]["se"]),

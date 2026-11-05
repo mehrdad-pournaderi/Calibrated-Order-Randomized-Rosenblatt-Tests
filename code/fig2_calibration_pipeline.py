@@ -1,11 +1,20 @@
 """Fig (boot replacement): one clean setting (n=20, rho=0.5, k=2 same-sign shift, ncp=12)
 showing naive miscalibration, restored size, and pooled-method power domination.
-v2: adds e1 (calibrated single-ordering mixture e-value) so the e-avg vs e1 gap isolates aggregation."""
+v2: adds e1 (calibrated single-ordering mixture e-value) so the e-avg vs e1 gap isolates aggregation.
+`python fig2_calibration_pipeline.py exact` draws the same figure from the exact-mode archives, with the
+Rosenblatt-based methods on exact predictive components (exact_whitening.py), to
+bootstrap_recalibrated_exact.png."""
+import sys
 import numpy as np
 from plot_style import setup, C, LBL, with_extras, log_ntr_axis, draw_series, finish_log_ntr_axis
 plt = setup()
 
-d = with_extras("results_calibration_pipeline.npz", ["results_calibration_pipeline_extra.npz", "results_calibration_pipeline_extra2.npz"])
+EXACT = "exact" in sys.argv[1:]; SUF = "_exact" if EXACT else ""
+d = with_extras("results_calibration_pipeline%s.npz" % SUF,
+                ["results_calibration_pipeline_extra%s.npz" % SUF, "results_calibration_pipeline_extra2%s.npz" % SUF])
+if EXACT:
+    for k in ["single", "pmerge", "bonf", "eavg", "e1", "fisher"]:
+        for m in ("ns", "cs", "cp"): d[f"{k}_{m}"] = d[f"{k}_x_{m}"]
 alpha = float(d["alpha"]); x, fin, xk = log_ntr_axis(d)
 tx = 3.75                                           # x position of the alpha label
 keys = ["single", "pmerge", "bonf", "eavg", "e1", "chi2", "sym", "fisher"]
@@ -19,7 +28,8 @@ for k in keys:
 A.axhline(alpha, color="0.3", lw=1.1, ls="--")
 A.text(tx + 0.25, alpha - 0.014, "α = 0.05", color="0.3", fontsize=8.5)
 finish_log_ntr_axis(A, x, fin, xk)
-A.set_title("A. Naive null size:\nmiscalibrated in both directions")
+A.set_title("A. Naive null size: exact for one ordering,\nconservative pooled, liberal order-invariant"
+            if EXACT else "A. Naive null size:\nmiscalibrated in both directions")
 A.set_ylabel("null size")
 A.set_ylim(0, 0.3); A.legend(fontsize=6.8, loc="upper right")
 
@@ -42,5 +52,5 @@ Cx.set_ylabel("power")
 Cx.set_ylim(top=0.585); Cx.legend(fontsize=6.8, loc="upper left", ncol=2, columnspacing=0.8)
 
 fig.tight_layout()
-fig.savefig("bootstrap_recalibrated.png", bbox_inches="tight")
-print("saved bootstrap_recalibrated.png")
+fig.savefig("bootstrap_recalibrated%s.png" % SUF, bbox_inches="tight")
+print("saved bootstrap_recalibrated%s.png" % SUF)

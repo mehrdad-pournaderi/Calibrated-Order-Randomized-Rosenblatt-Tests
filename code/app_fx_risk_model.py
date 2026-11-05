@@ -33,12 +33,22 @@ v3 (review credit: GPT Astra, round 2):
           from N(mu_hat, Sigma_hat) and evaluated with the same fixed whitening as the observed
           days (exact Monte-Carlo null; no re-estimation).
   - merger summaries used for calibration are uncapped (mean and min of per-order p-values).
+Optional argument `exact`: under the estimated-population null, also compute the exact predictive
+components of exact_whitening.py (mean and covariance estimated: t_{N-k} laws from the centred
+training year), on the same draws and orderings, for the observed days and inside every bootstrap
+replicate; reported under the keys <method>_x in results_fx_application_exact.npz, together with
+the uncalibrated exact tests and e-BH on the exact e-values (both valid under the
+estimated-population null).  The plug-in results and the issued-forecast calibration are unchanged.
 """
 import glob
+import sys
 import numpy as np
 from scipy import stats
 from scipy.special import logsumexp
 
+EXACT = "exact" in sys.argv[1:]
+if EXACT:
+    from exact_whitening import exact_scores
 rng = np.random.default_rng(20260715)
 rng_fc = np.random.default_rng(20260924)   # separate stream for the forecast-null calibration (v3),
                                             # so the estimated-population run reproduces the earlier one
@@ -103,21 +113,26 @@ def order_stats(Z):
                 eavg=logsumexp(logE, -1) - np.log(M))          # log e-value
 
 
-def all_stats(V, Linv, Sinv, W, gen=None):
+def all_stats(V, Linv, Sinv, W, gen=None, S0=None, Ntr=0):
     """V: (k, n) centered vectors; Linv: (n,n) chol-inverse of Sigma_hat (identity ordering);
-    fresh M orderings per row. Exchangeability does NOT hold here, so permute Sigma too."""
+    fresh M orderings per row. Exchangeability does NOT hold here, so permute Sigma too.
+    S0, Ntr (exact mode): centred training SSCP / Ntr, ridge-free; adds the <method>_x keys."""
     P = rand_perms(V.shape[0], M, gen)                         # (k,M,n)
     st = {}
     # per-row, per-ordering cholesky of permuted Sigma_hat: batch over unique perms is
     # overkill at k<=260, M=12 -> loop days in chunks
-    Zs = np.empty((V.shape[0], M, n))
+    Zs = np.empty((V.shape[0], M, n)); Z0 = np.empty((V.shape[0], M, n))
     Sig = np.linalg.inv(Sinv)
     for i in range(V.shape[0]):
         for m in range(M):
             p = P[i, m]
             L = np.linalg.cholesky(Sig[np.ix_(p, p)])
             Zs[i, m] = np.linalg.solve(L, V[i, p])
+            if S0 is not None:
+                Z0[i, m] = np.linalg.solve(np.linalg.cholesky(S0[np.ix_(p, p)]), V[i, p])
     st.update(order_stats(Zs))
+    if S0 is not None:
+        st.update({k + "_x": v for k, v in order_stats(exact_scores(Z0, Ntr, mean_known=False)).items()})
     st["chi2"] = np.einsum('ki,ij,kj->k', V, Sinv, V)
     st["sym"] = simes2(V @ W.T)
     return st
@@ -129,18 +144,22 @@ def calibrate(Shat, Ntr):
     A = np.linalg.cholesky(Shat)
     Xtr = rng.standard_normal((B, Ntr, n)) @ A.T
     mu_st = Xtr.mean(1)                                  # re-estimated mean, per replicate
-    Sst = np.einsum('bki,bkj->bij', Xtr - mu_st[:, None, :],
-                    Xtr - mu_st[:, None, :]) / (Ntr - 1) + 1e-8 * np.eye(n)
+    Ast = np.einsum('bki,bkj->bij', Xtr - mu_st[:, None, :], Xtr - mu_st[:, None, :])
+    Sst = Ast / (Ntr - 1) + 1e-8 * np.eye(n)
     # the real pipeline centers the test day by the ESTIMATED mean; carry that error here:
     Vc = rng.standard_normal((B, n)) @ A.T - mu_st
     P = rand_perms(B, M)
-    Zc = np.empty((B, M, n))
+    Zc = np.empty((B, M, n)); Z0 = np.empty((B, M, n)); S0 = Ast / Ntr   # S0: exact mode, ridge-free
     for b in range(B):
         for m in range(M):
             p = P[b, m]
             L = np.linalg.cholesky(Sst[b][np.ix_(p, p)])
             Zc[b, m] = np.linalg.solve(L, Vc[b, p])
+            if EXACT:
+                Z0[b, m] = np.linalg.solve(np.linalg.cholesky(S0[b][np.ix_(p, p)]), Vc[b, p])
     boot = order_stats(Zc)
+    if EXACT:
+        boot.update({k + "_x": v for k, v in order_stats(exact_scores(Z0, Ntr, mean_known=False)).items()})
     boot["chi2"] = np.einsum('bi,bij,bj->b', Vc, np.linalg.inv(Sst), Vc)
     Wb = invsqrt(Sst)
     boot["sym"] = simes2(np.einsum('bij,bj->bi', Wb, Vc))
@@ -168,6 +187,8 @@ def mc_high(sorted_boot, obs):
 KEYS = ["single", "pmerge", "bonf", "eavg", "chi2", "sym"]
 rows, gaps, logE_all, dates_all, rej_flags = [], [], [], [], []
 rows_fc, gaps_fc = [], []                            # issued-forecast calibration
+XK = ["single", "pmerge", "bonf", "eavg"]
+rows_x, rows_nx, gaps_x, logE_x, rej_x_flags = [], [], [], [], []   # exact mode
 for y in range(2016, 2026):
     tr = ret[years == y - 1]; te = ret[years == y]
     dte = [t for t, yy in zip(rdates, years) if yy == y]
@@ -177,7 +198,8 @@ for y in range(2016, 2026):
     Sinv, W = np.linalg.inv(Shat), invsqrt(Shat)
     Linv = np.linalg.inv(np.linalg.cholesky(Shat))
     boot = calibrate(Shat, len(tr))
-    st = all_stats(te - mu, Linv, Sinv, W)
+    st = all_stats(te - mu, Linv, Sinv, W,
+                   **(dict(S0=np.cov(tr.T, ddof=0), Ntr=len(tr)) if EXACT else {}))
     rej = {k: mc_low(boot[k], st[k]) for k in ("single", "pmerge", "bonf", "sym")}
     rej["eavg"] = mc_high(boot["eavg"], st["eavg"])
     rej["chi2"] = mc_high(boot["chi2"], st["chi2"])
@@ -186,6 +208,19 @@ for y in range(2016, 2026):
     logE_all.append(st["eavg"]); dates_all.extend(dte); rej_flags.append(rej["eavg"])
     print("  %d (T=%d): " % (y, len(te)) +
           "  ".join("%s=%.3f" % (k, rej[k].mean()) for k in KEYS))
+    if EXACT:   # same keys order as KEYS, with the Rosenblatt-based methods on exact components
+        rx = {k: mc_low(boot[k + "_x"], st[k + "_x"]) for k in ("single", "pmerge", "bonf")}
+        rx["eavg"] = mc_high(boot["eavg_x"], st["eavg_x"]); rx["chi2"] = rej["chi2"]; rx["sym"] = rej["sym"]
+        rows_x.append((y, len(te)) + tuple(float(rx[k].mean()) for k in KEYS))
+        # uncalibrated exact tests: valid per day under the estimated-population null
+        nx = dict(single=st["single_x"] <= ALPHA, pmerge=np.minimum(st["pmerge_x"], 1) <= ALPHA,
+                  bonf=np.minimum(st["bonf_x"], 1) <= ALPHA, eavg=st["eavg_x"] >= np.log(1 / ALPHA))
+        rows_nx.append((y, len(te)) + tuple(float(nx[k].mean()) for k in XK))
+        gaps_x.append(rx["eavg"].astype(float) - rx["single"].astype(float))
+        logE_x.append(st["eavg_x"]); rej_x_flags.append(rx["eavg"])
+        print("        exact components:          " +
+              "  ".join("%s=%.3f" % (k, rx[k].mean()) for k in KEYS) +
+              "   | uncalibrated: " + "  ".join("%s=%.3f" % (k, nx[k].mean()) for k in XK))
     # ---- issued-forecast null: fixed parameters, exact Monte-Carlo calibration
     bfc = calibrate_forecast(Shat, Linv, Sinv, W)
     rfc = {k: mc_low(bfc[k], st[k]) for k in ("single", "pmerge", "bonf", "sym")}
@@ -231,7 +266,23 @@ print("top days by pooled e-value:")
 for i in top:
     print("   %s  E=%9.1f" % (dates_all[i], E[i]))
 
-np.savez("results_fx_application.npz",
+extra = {}
+if EXACT:
+    gap_x = np.concatenate(gaps_x); se_x = nw_se(gap_x)
+    print("  exact components (estimated-population calibration): %.4f +/- %.4f NW" % (gap_x.mean(), se_x))
+    lEx = np.concatenate(logE_x); Ex = np.exp(lEx)
+    srt_x = np.argsort(-Ex); okx = Ex[srt_x] >= N / (Q_EBH * k)
+    kx = k[okx].max() if okx.any() else 0
+    print("e-BH at q=%.2f on exact e-values (valid under the estimated-population null): %d of %d days"
+          % (Q_EBH, kx, N))
+    print("top days by exact pooled e-value:")
+    for i in srt_x[:15]:
+        print("   %s  E=%9.3g   (plug-in E=%9.3g)" % (dates_all[i], Ex[i], E[i]))
+    extra = dict(rows_x=np.array(rows_x), rows_naive_x=np.array(rows_nx), keys_naive_x=np.array(XK),
+                 gap_x_mean=gap_x.mean(), gap_x_se=se_x, logE_x=lEx,
+                 rej_eavg_x=np.concatenate(rej_x_flags), ebh_flag_x=np.isin(np.arange(N), srt_x[:kx]))
+
+np.savez("results_fx_application%s.npz" % ("_exact" if EXACT else ""), **extra,
          rows=np.array(rows), keys=np.array(KEYS),
          rows_fc=np.array(rows_fc), gap_fc_mean=gap_fc.mean(), gap_fc_se=se_fc,
          gap_mean=gap.mean(), gap_se=se_nw, gap_se_iid=se_iid,

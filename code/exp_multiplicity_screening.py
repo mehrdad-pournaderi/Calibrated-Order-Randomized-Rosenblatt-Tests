@@ -14,10 +14,15 @@ from scipy import stats
 from scipy.special import logsumexp
 
 import sys
-_seed = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+# Usage: python exp_multiplicity_screening.py R SEED [MODE] [exact]
 # optional third argument: `extra` adds N_tr = 5n, 6n, 7n (archived with R=100, seeds 501, 502) and
-# `extra2` adds 12n, 16n, 24n, 32n (R=100, seeds 601, 602), written as chunk_multiplicity_<mode>_s<seed>.npz
-MODE = sys.argv[3] if len(sys.argv) > 3 else ""
+# `extra2` adds 12n, 16n, 24n, 32n (R=100, seeds 601, 602), written as chunk_multiplicity_<mode>_s<seed>.npz.
+# The argument `exact` adds the exact predictive components of exact_whitening.py on the same draws
+# (ridge-free training covariance), under the keys <method>_x, in chunk_multiplicity[_<mode>]_exact_s<seed>.npz.
+ARGS = [a for a in sys.argv[1:] if a != "exact"]
+EXACT = len(ARGS) < len(sys.argv) - 1
+_seed = int(ARGS[1]) if len(ARGS) > 1 else 0
+MODE = ARGS[2] if len(ARGS) > 2 else ""
 rng = np.random.default_rng(1414 + 1000 * _seed)
 Q = 0.10; LOG2 = np.log(2.0)
 N, M, NCP, RHO = 20, 12, 20.0, 0.5
@@ -81,9 +86,20 @@ def ebh(e, q):
 
 
 PSMALL = ["single", "pmerge", "bonf", "sym"]; ELARGE = ["eavg", "chi2"]
+XK = ["single", "pmerge", "bonf", "eavg"]                       # Rosenblatt-based methods
+if EXACT:
+    from exact_whitening import exact_scores, perm_chol_inv
+    PSMALL = PSMALL + [k + "_x" for k in XK[:3]]; ELARGE = ELARGE + ["eavg_x"]
+
+
+def order_stats_x(Z0, Ntr):
+    """Exact-component statistics from ridge-free plug-in components Z0."""
+    return {k + "_x": v for k, v in order_stats(exact_scores(Z0, Ntr)).items()}
+
+
 ALLK = PSMALL + ELARGE
-if len(sys.argv) > 1:
-    R = int(sys.argv[1])
+if len(ARGS) > 0:
+    R = int(ARGS[0])
 # raw per-replication proportions, so that chunks pool exactly and standard errors are exact
 RAW = {m: {k: {"fdr": [], "pow": []} for k in ALLK} for m in ("naive", "cal")}
 
@@ -93,8 +109,12 @@ for Ntr in NTR_GRID:
     acc = {m: {k: {"fdr": [], "pow": []} for k in ALLK} for m in ("naive", "cal")}
     for _ in range(R):
         perms = np.stack([rng.permutation(N) for _ in range(M)])
-        Shat = S if Ntr == 0 else (lambda X: X.T @ X / Ntr + ridge)(draw(np.zeros(N), S, Ntr))
+        if Ntr == 0:
+            Shat = S
+        else:
+            G = (lambda X: X.T @ X / Ntr)(draw(np.zeros(N), S, Ntr)); Shat = G + ridge
         Li = np.linalg.inv(np.linalg.cholesky(Shat[perms[:, :, None], perms[:, None, :]]))
+        if EXACT: Li0 = Li if Ntr == 0 else perm_chol_inv(G, perms)
         Sih = np.linalg.inv(Shat); Wsy = invsqrt(Shat)
         # ---- bootstrap null pool, chunked over B ----
         pool = {k: [] for k in ALLK}
@@ -105,21 +125,27 @@ for Ntr in NTR_GRID:
                 bs = order_stats(np.einsum('mij,bmj->bmi', Li, Vc[:, perms]))
                 bs["chi2"] = np.einsum('bi,ij,bj->b', Vc, Sih, Vc)
                 bs["sym"] = simes2(Vc @ Wsy.T)
+                if EXACT: bs.update({k + "_x": bs[k] for k in XK})       # known F: identical
             else:
                 Xtb = draw(np.zeros(N), Shat, b * Ntr).reshape(b, Ntr, N)
-                Sst = np.einsum('bki,bkj->bij', Xtb, Xtb) / Ntr + ridge
+                Gst = np.einsum('bki,bkj->bij', Xtb, Xtb) / Ntr; Sst = Gst + ridge
                 Lst = np.linalg.inv(np.linalg.cholesky(Sst[:, perms[:, :, None], perms[:, None, :]]))
                 bs = order_stats(np.einsum('bmij,bmj->bmi', Lst, Vc[:, perms]))
                 bs["chi2"] = np.einsum('bi,bij,bj->b', Vc, np.linalg.inv(Sst), Vc)
                 bs["sym"] = simes2(np.einsum('bij,bj->bi', invsqrt(Sst), Vc))
+                if EXACT:
+                    bs.update(order_stats_x(np.einsum('bmij,bmj->bmi', perm_chol_inv(Gst, perms),
+                                                      Vc[:, perms]), Ntr))
             for k in ALLK: pool[k].append(bs[k])
         boot = {k: np.concatenate(v) for k, v in pool.items()}
         # ---- the units ----
         X = MU + rng.standard_normal((NUNITS, N)) @ Lt.T
         st = order_stats(np.einsum('mij,kmj->kmi', Li, X[:, perms]))
         st["chi2"] = np.einsum('ki,ij,kj->k', X, Sih, X); st["sym"] = simes2(X @ Wsy.T)
+        if EXACT: st.update(order_stats_x(np.einsum('mij,kmj->kmi', Li0, X[:, perms]), Ntr))
         naive_rej = {k: bh(st[k], Q) for k in PSMALL}
         naive_rej["eavg"] = ebh(st["eavg"], Q)
+        if EXACT: naive_rej["eavg_x"] = ebh(st["eavg_x"], Q)
         naive_rej["chi2"] = bh(stats.chi2.sf(st["chi2"], N), Q)
         cal_rej = {}
         for k in ALLK:
@@ -144,7 +170,7 @@ for Ntr in NTR_GRID:
               % (k, np.mean(acc["naive"][k]["fdr"]), np.mean(acc["naive"][k]["pow"]),
                  np.mean(acc["cal"][k]["fdr"]), np.mean(acc["cal"][k]["pow"])))
 
-fn = "chunk_multiplicity%s_s%d.npz" % ("_" + MODE if MODE else "", _seed)
+fn = "chunk_multiplicity%s%s_s%d.npz" % ("_" + MODE if MODE else "", "_exact" if EXACT else "", _seed)
 np.savez(fn, Ntr=np.array([g if g else 100000 for g in NTR_GRID]), R=R,
          **{f"{m}_{k}_{s}": np.array(RAW[m][k][s])       # shape (n_Ntr, R)
             for m in ("naive", "cal") for k in ALLK for s in ("fdr", "pow")},

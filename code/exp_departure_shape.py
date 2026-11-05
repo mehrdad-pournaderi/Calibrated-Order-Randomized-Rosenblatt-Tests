@@ -1,6 +1,9 @@
 """
 Robustness sweep for the bootstrap-calibrated comparison.
-Usage: python3 sim7.py {n|rho|alt}
+Usage: python3 sim7.py {n|rho|alt} [exact]
+  `exact` adds the exact predictive components of exact_whitening.py, computed on the same draws
+  (ridge-free training covariance), under the keys <method>_x, and the paired gaps listed at the
+  end of the driver, in results_shape_<mode>_exact.npz.
 
 CORRECTED VERSION (v3):
  - fresh random orderings drawn in EVERY realization (the 'single' baseline is the
@@ -120,21 +123,31 @@ def compare(Sigma, Ntr, alt_type, rng):
             boot["chi2"] = np.einsum('ki,ij,kj->k', Vc, Sinv_hat, Vc)
             boot["sym"] = simes2(Vc @ Wsym.T, n)
         else:
-            Shat = (lambda X: X.T @ X / Ntr + ridge)(draw(np.zeros(n), Sigma, Ntr, rng))
+            G = (lambda X: X.T @ X / Ntr)(draw(np.zeros(n), Sigma, Ntr, rng)); Shat = G + ridge
             Linv_r = linv1(Shat, perms)
             Sinv_hat = np.linalg.inv(Shat); Wsym = invsqrt(Shat)
             Xtb = draw(np.zeros(n), Shat, B * Ntr, rng).reshape(B, Ntr, n)
-            Sst = np.einsum('bki,bkj->bij', Xtb, Xtb) / Ntr + ridge
+            Gst = np.einsum('bki,bkj->bij', Xtb, Xtb) / Ntr; Sst = Gst + ridge
             Lst = linvB(Sst, perms)
             Vc = draw(np.zeros(n), Shat, B, rng)
             boot = order_methods(np.einsum('bmij,bmj->bmi', Lst, Vc[:, perms]), n)
             boot["chi2"] = np.einsum('bi,bij,bj->b', Vc, np.linalg.inv(Sst), Vc)
             boot["sym"] = simes2(np.einsum('bij,bj->bi', invsqrt(Sst), Vc), n)
+            if EXACT:
+                bx = order_methods(exact_scores(np.einsum('bmij,bmj->bmi', linvB(Gst, perms), Vc[:, perms]), Ntr), n)
+                boot.update({k + "_x": v for k, v in bx.items()})
+        if EXACT:
+            if Ntr == 0:
+                boot.update({k + "_x": boot[k] for k in XK})       # known F: identical
+            Linv0 = Linv_r if Ntr == 0 else linv1(G, perms)
         Xn = draw(np.zeros(n), Sigma, NTE, rng); Xa = draw(mu, Sigma, NTE, rng)
         def allst(X):
             st = order_methods(np.einsum('mij,kmj->kmi', Linv_r, X[:, perms]), n)
             st["chi2"] = np.einsum('ki,ij,kj->k', X, Sinv_hat, X)
             st["sym"] = simes2(X @ Wsym.T, n)
+            if EXACT:
+                sx = order_methods(exact_scores(np.einsum('mij,kmj->kmi', Linv0, X[:, perms]), Ntr), n)
+                st.update({k + "_x": v for k, v in sx.items()})
             return st
         nul, alt = allst(Xn), allst(Xa)
         for k in PKEYS:
@@ -146,11 +159,24 @@ def compare(Sigma, Ntr, alt_type, rng):
     def gap(kk, base="single"):
         d = np.array(pr[kk]) - np.array(pr[base])
         return float(d.mean()), float(d.std(ddof=1) / np.sqrt(R))
+    xg = {}
+    if EXACT:   # paired: exact minus plug-in, and both e-value averages against the baselines
+        xg = {"gx_" + k: gap(k + "_x", base=k) for k in ["single", "pmerge", "bonf", "eavg", "e1"]}
+        xg.update({"g%s_%s" % (a, b): gap(a, base=b) for a in ["eavg", "eavg_x"] for b in ["sym", "chi2"]})
+        xg.update({"gxs_pmerge": gap("pmerge_x", base="single_x"), "gxs_eavg": gap("eavg_x", base="single_x"),
+                   "gxe1_eavg": gap("eavg_x", base="e1_x")})
     return ({k: csize[k] / R for k in ALLK}, {k: cpow[k] / R for k in ALLK},
-            gap("pmerge"), gap("eavg"), gap("eavg", base="e1"))
+            gap("pmerge"), gap("eavg"), gap("eavg", base="e1"), xg)
 
 
 mode = sys.argv[1] if len(sys.argv) > 1 else "n"
+EXACT = "exact" in sys.argv[2:]
+XK = ["single", "pmerge", "bonf", "eavg", "e1", "fisher", "pmerge_f", "bonf_f"]   # Rosenblatt-based
+if EXACT:
+    from exact_whitening import exact_scores
+    PKEYS = PKEYS + [k + "_x" for k in XK if k in PKEYS]
+    EKEYS = EKEYS + [k + "_x" for k in XK if k in EKEYS]
+    ALLK = ALLK + [k + "_x" for k in XK]
 rng = np.random.default_rng(SEEDS.get(mode, 7000))
 if mode == "n":
     configs = [("n=5", 5, 0.5, "sparse"), ("n=10", 10, 0.5, "sparse"), ("n=20", 20, 0.5, "sparse")]
@@ -165,8 +191,11 @@ for L in ["gm_s", "ge_s", "gm_k", "ge_k", "gme_s", "gee_s", "gme_k", "gee_k",
 print("MODE=%s  (R=%d B=%d NTE=%d ncp=%.0f, fresh orderings per realization)" % (mode, R, B, NTE, NCP))
 for name, n, rho, alt in configs:
     Nsmall = int(round(4 * n))
-    cs_s, cp_s, gp_s, ge_s2, g1_s = compare(equicorr(n, rho), Nsmall, alt, rng)
-    cs_k, cp_k, gp_k, ge_k2, g1_k = compare(equicorr(n, rho), 0, alt, rng)
+    cs_s, cp_s, gp_s, ge_s2, g1_s, xg_s = compare(equicorr(n, rho), Nsmall, alt, rng)
+    cs_k, cp_k, gp_k, ge_k2, g1_k, xg_k = compare(equicorr(n, rho), 0, alt, rng)
+    for gk in xg_s:
+        for suf, xg in (("_s", xg_s), ("_k", xg_k)):
+            out.setdefault(gk + suf, []).append(xg[gk][0]); out.setdefault(gk + suf + "_se", []).append(xg[gk][1])
     labels.append(name)
     for k in ALLK:
         out[f"csz_{k}"].append(cs_s[k]); out[f"cpw_{k}"].append(cp_s[k])
@@ -186,7 +215,10 @@ for name, n, rho, alt in configs:
     print("     gap eavg-vs-e1 (same base, aggregation isolated): small=%.4f±%.4f known=%.4f±%.4f"
           % (g1_s[0], g1_s[1], g1_k[0], g1_k[1]))
 
-np.savez("results_shape_%s.npz" % mode,
+if EXACT:
+    print("  exact minus plug-in (4n): " + "  ".join("%s %s" % (lab, " ".join("%+.3f(%.3f)" % (m, e) for m, e in
+          zip(out["gx_%s_s" % lab], out["gx_%s_s_se" % lab]))) for lab in ["eavg", "pmerge", "single"]))
+np.savez("results_shape_%s%s.npz" % (mode, "_exact" if EXACT else ""),
          labels=np.array(labels), **{k: np.array(v) for k, v in out.items()},
          alpha=ALPHA, ncp=NCP)
 print("saved results_shape_%s.npz" % mode)

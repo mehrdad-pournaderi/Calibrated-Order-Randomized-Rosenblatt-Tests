@@ -31,6 +31,8 @@ reported comparison.
 
 Usage: python merge_conformal_chunks.py ntr 400 1000 2000
        python merge_conformal_chunks.py pi0 80 90 95
+       add `exact` to pool the exact-mode chunks (this paper's tests only, plug-in and exact
+       components) into results_conformal_<kind>_<value>_exact.npz
 """
 import glob
 import sys
@@ -43,8 +45,37 @@ CONF = ONECLASS + ADAPTIVE
 ALL = OURS + CONF
 KNN_FIXED = 1                               # pre-specified; see the module docstring
 
-kind = sys.argv[1] if len(sys.argv) > 1 else "ntr"
-values = [int(a) for a in sys.argv[2:]] or ([400, 1000, 2000] if kind == "ntr" else [80, 90, 95])
+EXACT = "exact" in sys.argv[1:]
+ARGS = [a for a in sys.argv[1:] if a != "exact"]
+kind = ARGS[0] if len(ARGS) > 0 else "ntr"
+values = [int(a) for a in ARGS[1:]] or ([400, 1000, 2000] if kind == "ntr" else [80, 90, 95])
+
+if EXACT:
+    KX = OURS + ["pmerge_x", "bonf_x", "eavg_x", "eavg_x_ebh"]
+    for val in values:
+        files = sorted(glob.glob("chunk_conformal_%s%d_exact_s*.npz" % (kind, val)))
+        if not files:
+            print("no exact chunks for %s=%d" % (kind, val)); continue
+        chunks = [np.load(f, allow_pickle=True) for f in files]; meta = chunks[0]
+        out = {}
+        print("%s=%-5d exact mode, pooled over %d chunk(s)" % (kind, val, len(files)))
+        for k in KX:
+            a = np.concatenate([c[k] for c in chunks])
+            mu, sd = a.mean(0), a.std(0, ddof=1) / np.sqrt(len(a))      # as in the plug-in merge
+            out.update({"%s_fdr" % k: mu[0], "%s_pow" % k: mu[1], "%s_se_fdr" % k: sd[0], "%s_se_pow" % k: sd[1]})
+            print("   %-10s FDR=%.3f+-%.3f  power=%.3f+-%.3f" % (k, out["%s_fdr" % k], out["%s_se_fdr" % k],
+                                                              out["%s_pow" % k], out["%s_se_pow" % k]))
+        for k in ["pmerge", "bonf", "eavg"]:                 # paired exact minus plug-in
+            d = np.concatenate([c[k + "_x"] - c[k] for c in chunks])
+            out["gap_%s_pow" % k] = d[:, 1].mean(); out["gapse_%s_pow" % k] = d[:, 1].std(ddof=1) / np.sqrt(len(d))
+            out["gap_%s_fdr" % k] = d[:, 0].mean(); out["gapse_%s_fdr" % k] = d[:, 0].std(ddof=1) / np.sqrt(len(d))
+        R = len(np.concatenate([c["bonf"] for c in chunks]))
+        fn = "results_conformal_%s_%d_exact.npz" % (kind, val)
+        np.savez(fn, R=R, nchunks=len(files), methods=np.array(KX), **out,
+                 **{f: meta[f] for f in ("ntr", "pi0", "n_alt", "q", "n", "nunits", "ncp", "M", "B")
+                    if f in meta.files})
+        print("   saved %s\n" % fn)
+    raise SystemExit
 
 for val in values:
     files = sorted(glob.glob("chunk_conformal_%s%d_s*.npz" % (kind, val)))

@@ -51,7 +51,11 @@ constraint is severe: Remark 2.2 of Marandon et al. asks for l > m/(q k) with k 
 on the number of rejections, here l > 200.  The reference-sample grid therefore starts at
 N_tr = 400, the smallest size whose balanced split reaches that bound.
 
-Usage: python exp_conformal_comparison.py N_tr [R] [seed]
+Usage: python exp_conformal_comparison.py N_tr [R] [seed] [exact]
+  `exact` computes this paper's tests also on the exact predictive components of exact_whitening.py
+  (same draws, ridge-free training covariance; keys <method>_x, plus `eavg_x_ebh`, e-BH on the
+  uncalibrated exact e-value averages) and skips the conformal scores, which do not depend on the
+  whitening and are unchanged; writes chunk_conformal_ntr<N_tr>_exact_s<seed>.npz.
 """
 import sys
 import numpy as np
@@ -174,6 +178,21 @@ def adadetect_scores(fit, mixed, kind):
 
 
 OURS = ["pmerge", "bonf", "eavg", "chi2"]
+EXACT = "exact" in sys.argv[1:]
+OURS_X = ["pmerge_x", "bonf_x", "eavg_x", "eavg_x_ebh"] if EXACT else []
+if EXACT:
+    from exact_whitening import exact_scores, perm_chol_inv
+
+
+def ebh(e, q):
+    m = len(e); o = np.argsort(-e)
+    ok = np.where(np.arange(1, m + 1) * e[o] >= m / q)[0]
+    r = np.zeros(m, bool)
+    if len(ok):
+        r[o[:ok.max() + 1]] = True
+    return r
+
+
 # "knn:k" variants are collapsed to a single reported "knn" row at merge time.
 CONF = ["mahal", "kde", "ada-rf", "ada-lr"] + ["knn:%d" % k for k in KNN_GRID]
 
@@ -182,7 +201,7 @@ def run(Ntr, R):
     lgrid = sorted({NUNITS, Ntr // 2})
     # per-replication FDP and TDP are kept so that Monte-Carlo standard errors can be
     # reported: with only 10 non-nulls the realized FDP is a very coarse random variable.
-    acc_ours = {k: [] for k in OURS}
+    acc_ours = {k: [] for k in OURS + OURS_X}
     acc_conf = {l: {k: [] for k in CONF} for l in lgrid}
 
     for _ in range(R):
@@ -192,27 +211,36 @@ def run(Ntr, R):
         X = MU + rng.standard_normal((NUNITS, N)) @ Lt.T
 
         # ---- this paper: fit on the whole reference sample, bootstrap-calibrate ----
-        Shat = ref.T @ ref / Ntr + ridge
+        G = ref.T @ ref / Ntr; Shat = G + ridge
         Lc = np.linalg.cholesky(Shat)
         Li = np.linalg.inv(np.linalg.cholesky(Shat[pidx]))
         Sih = np.linalg.inv(Shat)
 
-        pool = {k: [] for k in OURS}
+        pool = {k: [] for k in OURS + OURS_X[:3]}
         for s in range(0, B, BCHUNK):
             b = min(BCHUNK, B - s)
-            Sst = wishart_cov(Lc, Ntr, b) + ridge        # re-estimated null covariance
+            G0 = wishart_cov(Lc, Ntr, b); Sst = G0 + ridge        # re-estimated null covariance
             Lst = np.linalg.inv(np.linalg.cholesky(Sst[:, perms[:, :, None], perms[:, None, :]]))
             Vc = rng.standard_normal((b, N)) @ Lc.T
             bs = order_stats(np.einsum('bmij,bmj->bmi', Lst, Vc[:, perms]))
             bs["chi2"] = np.einsum('bi,bij,bj->b', Vc, np.linalg.inv(Sst), Vc)
-            for k in OURS:
+            if EXACT:
+                bx = order_stats(exact_scores(np.einsum('bmij,bmj->bmi', perm_chol_inv(G0, perms), Vc[:, perms]), Ntr))
+                bs.update({k + "_x": v for k, v in bx.items()})
+            for k in OURS + OURS_X[:3]:
                 pool[k].append(bs[k])
         boot = {k: np.sort(np.concatenate(v)) for k, v in pool.items()}
 
         st = order_stats(np.einsum('mij,kmj->kmi', Li, X[:, perms]))
         st["chi2"] = np.einsum('ki,ij,kj->k', X, Sih, X)
-        for k in OURS:
-            if k in ("eavg", "chi2"):                    # large = evidence against the null
+        if EXACT:
+            sx = order_stats(exact_scores(np.einsum('mij,kmj->kmi', perm_chol_inv(G, perms), X[:, perms]), Ntr))
+            st.update({k + "_x": v for k, v in sx.items()})
+            r = ebh(st["eavg_x"], Q)                     # uncalibrated exact e-values: valid e-BH
+            acc_ours["eavg_x_ebh"].append((np.sum(r & ~truth_alt) / max(r.sum(), 1),
+                                           np.sum(r & truth_alt) / n_alt))
+        for k in OURS + OURS_X[:3]:
+            if k in ("eavg", "chi2", "eavg_x"):          # large = evidence against the null
                 cnt = B - np.searchsorted(boot[k], st[k], side="left")
             else:                                        # small = evidence against the null
                 cnt = np.searchsorted(boot[k], st[k], side="right")
@@ -221,7 +249,7 @@ def run(Ntr, R):
                                 np.sum(r & truth_alt) / n_alt))
 
         # ---- conformal, at each calibration-set size ----
-        for l in lgrid:
+        for l in ([] if EXACT else lgrid):              # exact mode: conformal rows unchanged
             fit, cal = ref[:Ntr - l], ref[Ntr - l:]
             Sfi = np.linalg.inv(fit.T @ fit / len(fit) + ridge)
             mah = lambda Y: np.einsum('ki,ij,kj->k', Y, Sfi, Y)
@@ -241,8 +269,9 @@ def run(Ntr, R):
 
     # raw per-replication (FDP, TDP); conformal kept separately for each calibration size,
     # so that chunks can be pooled and the choice of l made on the pooled averages.
-    raw = {k: np.asarray(acc_ours[k]) for k in OURS}
-    raw.update({"%s@%d" % (k, l): np.asarray(acc_conf[l][k]) for l in lgrid for k in CONF})
+    raw = {k: np.asarray(acc_ours[k]) for k in OURS + OURS_X}
+    if not EXACT:
+        raw.update({"%s@%d" % (k, l): np.asarray(acc_conf[l][k]) for l in lgrid for k in CONF})
     return raw, lgrid
 
 
@@ -250,24 +279,25 @@ def run(Ntr, R):
 # Usage: python exp_conformal_comparison.py N_tr [R] [seed]
 # Writes one chunk of R replications; run several seeds and pool with
 # merge_conformal_chunks.py, which also picks the calibration size l on the pooled averages.
-Ntr = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
-R = int(sys.argv[2]) if len(sys.argv) > 2 else R_DEFAULT
-seed = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+ARGS = [a for a in sys.argv[1:] if a != "exact"]
+Ntr = int(ARGS[0]) if len(ARGS) > 0 else 1000
+R = int(ARGS[1]) if len(ARGS) > 1 else R_DEFAULT
+seed = int(ARGS[2]) if len(ARGS) > 2 else 0
 rng = np.random.default_rng(90210 + 1000 * seed)
 
 raw, lgrid = run(Ntr, R)
 print("Conformal comparison -- sparse screening, n=%d, %d hypotheses, pi0=%.2f (%d novelties), "
       "q=%.2f, ncp=%.0f, M=%d, B=%d" % (N, NUNITS, PI0, n_alt, Q, NCP, M, B))
 print("N_tr=%d  chunk seed=%d  R=%d  calibration sizes tried: %s" % (Ntr, seed, R, lgrid))
-for k in OURS:
+for k in OURS + OURS_X:
     a = raw[k]
     print("   %-8s FDR=%.3f  power=%.3f" % (k, a[:, 0].mean(), a[:, 1].mean()))
-for k in CONF:
+for k in ([] if EXACT else CONF):
     best = max(lgrid, key=lambda l: raw["%s@%d" % (k, l)][:, 1].mean())
     a = raw["%s@%d" % (k, best)]
     print("   %-8s FDR=%.3f  power=%.3f   (l=%d)" % (k, a[:, 0].mean(), a[:, 1].mean(), best))
 
-fn = "chunk_conformal_ntr%d_s%d.npz" % (Ntr, seed)
+fn = "chunk_conformal_ntr%d%s_s%d.npz" % (Ntr, "_exact" if EXACT else "", seed)
 np.savez(fn, ntr=Ntr, pi0=PI0, n_alt=n_alt, lgrid=np.array(lgrid), R=R, seed=seed,
          q=Q, n=N, nunits=NUNITS, ncp=NCP, M=M, B=B, **raw)
 print("saved " + fn)

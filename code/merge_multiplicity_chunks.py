@@ -8,15 +8,20 @@ the replications are pooled rather than run in one pass.
 Usage: python merge_multiplicity_chunks.py          (original training sizes)
        python merge_multiplicity_chunks.py extra    (added sizes 5n-7n -> ..._extra.npz)
        python merge_multiplicity_chunks.py extra2   (added sizes 12n-32n -> ..._extra2.npz)
+       add `exact` to pool the chunks written in exact mode (-> ..._exact.npz, with the _x keys)
 """
 import glob
 import sys
 import numpy as np
 
-MODE = sys.argv[1] if len(sys.argv) > 1 else ""
-SUF = "_" + MODE if MODE else ""
+ARGS = [a for a in sys.argv[1:] if a != "exact"]
+EXACT = len(ARGS) < len(sys.argv) - 1
+MODE = ARGS[0] if ARGS else ""
+SUF = ("_" + MODE if MODE else "") + ("_exact" if EXACT else "")
 
 KEYS = ["single", "pmerge", "bonf", "sym", "eavg", "chi2"]
+if EXACT:
+    KEYS += ["single_x", "pmerge_x", "bonf_x", "eavg_x"]
 
 files = sorted(glob.glob("chunk_multiplicity%s_s*.npz" % SUF))
 if not files:

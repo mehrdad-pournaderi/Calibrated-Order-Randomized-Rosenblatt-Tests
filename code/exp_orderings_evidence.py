@@ -12,6 +12,8 @@ by averaging log(mean of each disjoint block of M e-values), which is unbiased f
             V(X) = Var_sigma(E^sigma | X) / Ebar(X)^2, so V/(2M) is the second-order prediction of
             the log-evidence still missing at M
 
+The `null` design draws X from the null (k = 0): its V is what a pilot simulated from the null
+would estimate, which is much smaller than under the alternatives.
 Equicorrelated Sigma is invariant under permutation, so every ordering has the same Cholesky
 factor and only X is permuted.  Usage: python exp_orderings_evidence.py  ->  results_orderings_evidence.npz
 """
@@ -27,6 +29,7 @@ DESIGNS = [  # name, n, rho, k (number of same-sign shifted coordinates), seed
     ("all", 10, 0.5, 10, 4102),      # dense design of Figure 3
     ("two", 20, 0.5, 2, 4103),       # design of Figure 2
     ("sweep", 10, 0.6, 1, 4104),     # design of the calibrated M sweep (exp_number_of_orderings.py)
+    ("null", 10, 0.5, 0, 4105),      # the null itself: V there is what a null pilot would estimate
 ]
 
 
@@ -42,7 +45,7 @@ def run(n, rho, k, seed):
     rng = np.random.default_rng(seed)
     S = np.full((n, n), rho); np.fill_diagonal(S, 1.0)
     L = np.linalg.cholesky(S); Li = np.linalg.inv(L); Sinv = np.linalg.inv(S)
-    v = np.zeros(n); v[:k] = 1.0; mu = v * np.sqrt(NCP / (v @ Sinv @ v))
+    v = np.zeros(n); v[:k] = 1.0; mu = v * np.sqrt(NCP / (v @ Sinv @ v)) if k else np.zeros(n)
     est = np.zeros((R, len(MGRID))); V = np.zeros(R)
     for c0 in range(0, R, CHUNK):
         X = mu + rng.standard_normal((CHUNK, n)) @ L.T
