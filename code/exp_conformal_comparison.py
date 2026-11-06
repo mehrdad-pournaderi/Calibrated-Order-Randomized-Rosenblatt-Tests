@@ -28,7 +28,10 @@ AdaDetect (Marandon et al., Sec. 2.4) splits the reference sample into a fit par
 calibration part of size l, trains a probabilistic classifier to separate the fit part from
 (calibration part + test sample), and takes the predicted probability of belonging to the
 latter as the score.  Because the score is invariant to permutations within
-calibration + test, the conformal p-values stay valid, so the score may be learned.
+calibration + test, the conformal p-values stay valid, so the score may be learned.  The
+invariance is enforced literally (adadetect_score.py): both classifiers are fitted on the
+calibration + test rows in a canonical order, so the fitted score depends on those rows only
+through their unordered set; check_adadetect_invariance.py verifies it.
 
 TUNING.  Every nuisance choice is FIXED IN ADVANCE and never selected on the results.
 Reporting the best of several tuning values -- even when the average is taken over
@@ -61,8 +64,7 @@ import sys
 import numpy as np
 from scipy import stats
 from scipy.special import logsumexp
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
+from adadetect_score import adadetect_scores          # canonical-order AdaDetect scores
 
 rng = np.random.default_rng(90210)
 
@@ -153,30 +155,6 @@ def knn_scores(fit, Y, kgrid=KNN_GRID):
 def kde_score(fit, Y):
     kde = stats.gaussian_kde(fit.T)
     return -np.log(np.maximum(kde(Y.T), 1e-300))
-
-
-def quad_features(Z):
-    iu = np.triu_indices(N)
-    return np.concatenate([Z, (Z[:, :, None] * Z[:, None, :])[:, iu[0], iu[1]]], axis=1)
-
-
-def adadetect_scores(fit, mixed, kind):
-    """Classifier separating `fit` (label 0) from `mixed` = cal + test (label 1).
-    Returns predicted P(label = 1) for every row of `mixed`, which is permutation
-    invariant within `mixed` and therefore a valid AdaDetect score function."""
-    Xd = np.vstack([fit, mixed])
-    yd = np.r_[np.zeros(len(fit)), np.ones(len(mixed))]
-    if kind == "rf":
-        clf = RandomForestClassifier(n_estimators=100, min_samples_leaf=5,
-                                     random_state=0, n_jobs=-1)
-        clf.fit(Xd, yd)
-        return clf.predict_proba(mixed)[:, 1]
-    Xf = quad_features(Xd)
-    sd = Xf.std(0); sd[sd == 0] = 1.0
-    Xf = (Xf - Xf.mean(0)) / sd
-    clf = LogisticRegression(C=0.05, max_iter=3000)
-    clf.fit(Xf, yd)
-    return clf.predict_proba(Xf[len(fit):])[:, 1]
 
 
 OURS = ["pmerge", "bonf", "eavg", "chi2"]

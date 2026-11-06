@@ -44,7 +44,8 @@ cd code
 | `exp_sparsity_path.py` | power along the sparse-to-dense path | (background) |
 | `exp_conformal_comparison.py` | comparison with conformal novelty detection and AdaDetect | Table 1, §7.3 |
 | `merge_conformal_chunks.py` | pools the chunks written above into one archive per reference-sample size | Table 1, §7.3 |
-| `exp_conformal_novelty_density.py` | how the crossover with AdaDetect moves with the null proportion | Table 2, §7.3 |
+| `exp_conformal_novelty_density.py` | how the crossover with AdaDetect moves with the null proportion | supplementary material (null-proportion sweep) |
+| `adadetect_score.py` | the AdaDetect scores used by the two conformal scripts, fitted on the calibration + test rows in canonical order | Table 1, §7.3 |
 
 `exp_calibration_pipeline.py` and `exp_multiplicity_screening.py` also have `extra` and `extra2`
 modes for the training sizes added to Figures 2 and 4 ($N_{tr}$ = 5n, 6n, 7n and 12n, 16n, 24n,
@@ -103,7 +104,13 @@ replication count and a seed; `exp_conformal_novelty_density.py` takes a null pr
 `merge_multiplicity_chunks.py` and `merge_conformal_chunks.py` then pool into the archives in
 `results/`. The chunks store raw per-replication proportions, so pooling is exact and the reported
 Monte-Carlo standard errors are exact too. The two conformal scripts are the only ones that need
-`scikit-learn`.
+`scikit-learn`. Their AdaDetect scores (`adadetect_score.py`) train each classifier on the
+calibration + test rows in a canonical (lexicographic) order, so the fitted score depends on those
+rows only through their unordered set, the permutation invariance AdaDetect's validity rests on.
+Before November 2026 the rows were passed in the order given, and a random forest with a fixed
+seed draws its bootstrap samples by row position, so that implementation was not invariant
+(`check_adadetect_invariance.py`). The conformal archives were regenerated with the canonical
+order on the same seeds; every other row of them is unchanged.
 
 **Supporting checks** — small scripts behind claims made in the text:
 
@@ -116,7 +123,8 @@ Monte-Carlo standard errors are exact too. The two conformal scripts are the onl
 | `check_fisher_pooling.py` | does pooling improve the Fisher base statistic? (no) |
 | `check_evidence_power_bridge.py` | when does expected log-evidence control fixed-level power? |
 | `check_equicorrelated_orbit.py` | the exactly solvable orbit: closed-form profiles and exact power (background) |
-| `check_quoted_numbers.py` | re-verifies every number the paper quotes from the single-test and FX archives (run from `results/`, optionally with the path to `paper.tex`) |
+| `check_adadetect_invariance.py` | is the AdaDetect score invariant to the order of the calibration + test rows? (yes, exactly; the earlier fixed-seed forest was not) |
+| `check_quoted_numbers.py` | re-verifies every number the paper quotes from the single-test and FX archives (run from `results/`, optionally with the path to `paper.tex`; a `supplementary.tex` beside it is checked too) |
 
 **Application and figures:**
 

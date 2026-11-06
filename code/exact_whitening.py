@@ -11,6 +11,9 @@ normal only as N -> infinity.  Their exact predictive counterparts are
 
 independent over k = 1, ..., n when x is a fresh draw from the null, so that
 z~_k = Phi^{-1}(F_{t, N-k+1}(t_k)) are i.i.d. N(0, 1) exactly, for every N >= n and every Sigma.
+If the mean is known but nonzero, mu, subtract it first, from x and from every training row
+(W'W then becomes sum_i (W_i - mu)(W_i - mu)'); without that centring the formula is wrong
+whenever mu != 0.
 With the mean estimated as well, A = sum_i (W_i - Wbar)(W_i - Wbar)' and u = chol(A)^{-1}(x - Wbar)
 (i.e. z from Sigma_hat = A/N and the centred test point), and for N > n
 
@@ -56,7 +59,7 @@ def exact_scores(Z, N, mean_known=True):
     return -np.sign(t) * ndtri(tail)
 
 
-if __name__ == "__main__":       # null-law check, known mean (= 0) and estimated mean (true mean != 0)
+if __name__ == "__main__":       # null-law check, known mean and estimated mean (true mean != 0 in both)
     from scipy import stats
     rng = np.random.default_rng(0)
     n, rho, reps, batch = 20, 0.5, 40000, 4000
@@ -71,11 +74,12 @@ if __name__ == "__main__":       # null-law check, known mean (= 0) and estimate
     print("n=%d, equicorrelation %.1f, %d training/test pairs per line" % (n, rho, reps))
     for N in (25, 40, 80):
         for known in (True, False):
-            m = 0.0 if known else mu
             zp, zx = [], []
             for _ in range(reps // batch):
-                W = m + rng.standard_normal((batch, N, n)) @ L.T; x = m + rng.standard_normal((batch, n)) @ L.T
-                if not known:                                     # centre on the training mean
+                W = mu + rng.standard_normal((batch, N, n)) @ L.T; x = mu + rng.standard_normal((batch, n)) @ L.T
+                if known:                                         # centre on the known mean
+                    W = W - mu; x = x - mu
+                else:                                             # centre on the training mean
                     Wb = W.mean(1); W = W - Wb[:, None]; x = x - Wb
                 Li = perm_chol_inv(np.einsum('bki,bkj->bij', W, W) / N, perm)[:, 0]
                 Z = np.einsum('bij,bj->bi', Li, x[:, perm[0]])

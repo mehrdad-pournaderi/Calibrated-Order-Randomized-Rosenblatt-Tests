@@ -18,7 +18,9 @@ common energy ncp=20, rho=0.5, q=0.10, M=12, B=2500.
 Every nuisance choice is fixed in advance and never selected on the results: k = 1 for the
 nearest-neighbour score, calibration size l = N_tr/2 for the one-class scores, and l = m for
 AdaDetect, the value recommended in its authors' Remark 2.2 (a balanced split would halve the
-sample available to train its classifier).
+sample available to train its classifier).  The AdaDetect scores come from adadetect_score.py,
+which fits on the calibration + test rows in canonical order, so that the score is exactly
+invariant to permutations within calibration + test.
 
 Usage: python exp_conformal_novelty_density.py pi0 [R] [seed] [exact]   (pi0 as a percentage, e.g. 95)
        then: python merge_conformal_chunks.py pi0 80 90 95 [exact]
@@ -29,8 +31,7 @@ import sys
 import numpy as np
 from scipy import stats
 from scipy.special import logsumexp
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
+from adadetect_score import adadetect_scores as ada   # canonical-order AdaDetect scores
 
 N, M, NCP, RHO = 20, 12, 20.0, 0.5
 TAUS = np.array([1.0, 2.0, 3.0])
@@ -109,21 +110,6 @@ def knn_scores(fit, Y, kgrid=KNN_GRID):
 def kde_score(fit, Y):
     kde = stats.gaussian_kde(fit.T)
     return -np.log(np.maximum(kde(Y.T), 1e-300))
-
-
-def quad(Z):
-    iu = np.triu_indices(N)
-    return np.concatenate([Z, (Z[:, :, None] * Z[:, None, :])[:, iu[0], iu[1]]], 1)
-
-
-def ada(fit, mixed, kind):
-    Xd = np.vstack([fit, mixed]); yd = np.r_[np.zeros(len(fit)), np.ones(len(mixed))]
-    if kind == "rf":
-        c = RandomForestClassifier(n_estimators=100, min_samples_leaf=5, random_state=0, n_jobs=-1)
-        c.fit(Xd, yd); return c.predict_proba(mixed)[:, 1]
-    Xf = quad(Xd); sd = Xf.std(0); sd[sd == 0] = 1.0; Xf = (Xf - Xf.mean(0)) / sd
-    c = LogisticRegression(C=0.05, max_iter=3000); c.fit(Xf, yd)
-    return c.predict_proba(Xf[len(fit):])[:, 1]
 
 
 def run(pi0, R):

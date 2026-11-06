@@ -312,7 +312,7 @@ cfx = {nn: np.load("results_conformal_ntr_%d_exact.npz" % nn) for nn in (400, 10
 # pooled rows on the exact predictive scores; chi2 and the conformal rows do not depend on the whitening
 table = {"bonf_x": (0.642, 0.648, 0.666), "eavg_x": (0.629, 0.620, 0.637), "pmerge_x": (0.497, 0.454, 0.468),
          "chi2": (0.336, 0.338, 0.369), "knn": (0.073, 0.405, 0.520), "mahal": (0.038, 0.183, 0.336),
-         "kde": (0.037, 0.141, 0.265), "ada-rf": (0.005, 0.116, 0.235), "ada-lr": (0.003, 0.026, 0.063)}
+         "kde": (0.037, 0.141, 0.265), "ada-rf": (0.003, 0.108, 0.218), "ada-lr": (0.003, 0.026, 0.063)}
 src = lambda nn, k: cfx[nn] if k.endswith("_x") else cf[nn]
 for k, vals in table.items():
     for nn, q in zip((400, 1000, 2000), vals):
@@ -547,7 +547,10 @@ f2 = 2 * pr * (1 - pr)
 check("two independent calibrations alone, null disagreement %", 100 * float(((f2[1:] + f2[:-1]) / 2 * np.diff(u)).sum()), 0.55, 2)
 intex("\\addD{$2.9\\%$} of observations")
 intex("fall to $1.0\\%$,\n$1.8\\%$, $0.5\\%$ and $0.4\\%$")
-intex("about $0.55\\%$ under the null at $B=1999$, and gives $3.3\\%$, $6.2\\%$,\n$1.4\\%$ and $1.3\\%$")
+intex("disagree on about $0.55\\%$ of null observations at $B=1999$. The two sources do not add")
+intex("four figures at twelve orderings become $3.3\\%$, $6.2\\%$, $1.4\\%$ and $1.3\\%$")
+claim("the two sources of disagreement do not add (independent < shared + 0.55 under the null)",
+      all(dis(ds, "null", nm, 12) < dis(dsh, "null", nm, 12) + 0.55 - 0.3 for nm in ("one", "all")))
 
 # ---------------------------------------------------------------- fixed ridge (Nov 2026)
 print("§3.3 fixed ridge: Figure 2 rerun without it (results_calibration_pipeline*_exact_noridge.npz)")
@@ -580,7 +583,9 @@ others_ok = (ax2["geavg_x_sym_s"][1] > 0 and np.all(g2["gap_eavg_x_sym"] > 0) an
              and np.all(ax2["geavg_x_chi2_s"] > 0) and np.all(rx2["geavg_x_chi2_s"] > 0) and np.all(nx2["geavg_x_chi2_s"] > 0)
              and np.all(g1["gap_eavg_x_chi2"] > 0) and np.all(g2["gap_eavg_x_chi2"] > 0))
 claim("abstract: e-avg ahead of chi2 everywhere and of sym away from single-coordinate departures", bool(others_ok))
-intex("deficits of at most $0.02$ against the symmetric-root test on single-coordinate departures")
+intex("deficits of at most $0.02$ against the symmetric-root test on\nsingle-coordinate departures")
+intex("With Gaussian mean\nand covariance estimated")
+intex("$p$-values exact and e-values valid")
 if tex is not None:                                   # JSPI limit: at most 200 words in the abstract
     import re
     ab = tex[tex.index("\\begin{abstract}") + 16: tex.index("\\end{abstract}")]
@@ -589,6 +594,56 @@ if tex is not None:                                   # JSPI limit: at most 200 
     ab = re.sub(r"\$[^$]*\$", "X", ab); ab = re.sub(r"\\[a-zA-Z]+", "", ab); ab = re.sub(r"[{}~]", " ", ab)
     nw = len(ab.split()); nh = len(ab.replace("-", " ").split())
     claim("abstract at most 200 words (%d; %d counting hyphenated parts separately)" % (nw, nh), nh <= 200)
+
+# ---------------------------------------------------------------- review round 5 (Nov 2026)
+print("Review round 5: Lemma 3 centering, unregularized Hotelling identity, AdaDetect canonical order")
+intex("the centering point $\\mut_0$ be the known mean, $\\mut_0=\\mut$, when the mean is known")
+intex("$\\mathbf u^\\sigma=\\mathrm{chol}(P_\\sigma AP_\\sigma^\\top)^{-1}P_\\sigma(\\X-\\mut_0)$")
+intex("so in the\nunregularized case the two coincide after calibration")
+intex("each classifier is trained on the calibration and test points in a\ncanonical (lexicographic) order")
+intex("reaches \\delD{$0.235$}\\addD{$0.218$}")
+# the AdaDetect random-forest entries before the canonical order (archives of Sep 2026, same draws)
+old_rf = {"ntr_400": 0.0050, "ntr_1000": 0.11650, "ntr_2000": 0.2350,
+          "pi0_80": 0.852375, "pi0_90": 0.46975, "pi0_95": 0.1270}
+cfa = {k: np.load("results_conformal_%s.npz" % k, allow_pickle=True) for k in old_rf}
+dmax = max(abs(float(cfa[k]["ada-rf_pow"]) - v) for k, v in old_rf.items())
+claim("AdaDetect forest powers move by at most 0.017 (%.4f)" % dmax, round(dmax, 3) <= 0.017)
+claim("learned scores still the weakest two conformal rows at N_tr=2000",
+      max(float(cf[2000]["ada-rf_pow"]), float(cf[2000]["ada-lr_pow"])) <
+      min(float(cf[2000][k + "_pow"]) for k in ("knn", "mahal", "kde")))
+# the null-proportion sweep, reported in the supplement (pooled rows on the exact scores)
+px = {v: np.load("results_conformal_pi0_%d_exact.npz" % v) for v in (80, 90, 95)}
+pp = {v: np.load("results_conformal_pi0_%d.npz" % v, allow_pickle=True) for v in (80, 90, 95)}
+sweep = {"bonf_x": (0.821, 0.733, 0.642), "eavg_x": (0.799, 0.703, 0.621), "pmerge_x": (0.683, 0.550, 0.441),
+         "chi2": (0.583, 0.444, 0.328), "ada-rf": (0.851, 0.485, 0.120), "ada-lr": (0.660, 0.174, 0.046),
+         "knn": (0.656, 0.562, 0.437), "mahal": (0.531, 0.375, 0.204), "kde": (0.448, 0.297, 0.172)}
+srcp = lambda v, k: px[v] if k.endswith("_x") else pp[v]
+for k, vals in sweep.items():
+    for v, q in zip((80, 90, 95), vals):
+        check("supplement sweep %s at pi0=0.%d" % (k, v), float(srcp(v, k)[k + "_pow"]), q)
+check("supplement sweep: largest realized FDR", max(float(srcp(v, k)[k + "_fdr"]) for v in px for k in sweep), 0.098)
+claim("supplement sweep: SEs at most 0.011 (FDR) and 0.022 (power)",
+      max(float(srcp(v, k)[k + "_se_fdr"]) for v in px for k in sweep) <= 0.011 and
+      max(float(srcp(v, k)[k + "_se_pow"]) for v in px for k in sweep) <= 0.022)
+claim("supplement sweep: AdaDetect forest strongest at pi0=0.80",
+      float(pp[80]["ada-rf_pow"]) == max(float(srcp(80, k)[k + "_pow"]) for k in sweep))
+eg = {v: list(pp[v]["ell_grid"]) for v in (80, 95)}
+check("supplement: forest at pi0=0.80 with l=N_tr/2", pp[80]["ada-rf_pow_by_ell"][eg[80].index(500)], 0.561)
+check("supplement: forest at pi0=0.80 with l=N", pp[80]["ada-rf_pow_by_ell"][eg[80].index(200)], 0.851)
+check("supplement: forest at pi0=0.95 with l=N", pp[95]["ada-rf_pow_by_ell"][eg[95].index(200)], 0.028)
+check("supplement: forest at pi0=0.95 with l=N_tr/2", pp[95]["ada-rf_pow_by_ell"][eg[95].index(500)], 0.120)
+zmax = max(abs(float(srcp(95, k)[k + "_pow"]) - float(src(1000, k)[k + "_pow"])) /
+           np.hypot(float(srcp(95, k)[k + "_se_pow"]), float(src(1000, k)[k + "_se_pow"])) for k in sweep)
+claim("pi0=0.95 column agrees with Table 1 N_tr=1000 within 2 SE (max %.2f)" % zmax, zmax < 2)
+import os
+sp = os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "supplementary.tex") if tex is not None else ""
+if os.path.exists(sp):
+    stex = open(sp).read()
+    for t in ("raises its power from \\addD{$0.561$ to $0.851$}", "\\addD{$0.028$ in place of $0.120$}",
+              "AdaDetect, random forest       & \\addD{0.851} & \\addD{0.485} & \\addD{0.120}",
+              "the largest\nrealized value being $0.098$; standard errors are at most $0.011$ on the FDR and $0.022$ on the\npowers",
+              "by at most $0.017$\nin power"):
+        claim("supplement contains %r" % t[:40], t in stex)
 
 print("\nRESULT: %d failure(s)" % fails)
 sys.exit(1 if fails else 0)

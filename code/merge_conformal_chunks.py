@@ -108,6 +108,11 @@ for val in values:
         out[k], se[k] = a.mean(0), a.std(0, ddof=1) / np.sqrt(len(a))
     R = len(pooled("bonf"))
 
+    # AdaDetect at every calibration size in the chunks (keys <method>_pow_by_ell, _fdr_by_ell,
+    # aligned with ell_grid): the supplement quotes the size not chosen, to show why the rule matters
+    by_ell = {"%s_%s_by_ell" % (k, s): np.array([pooled("%s@%d" % (k, l)).mean(0)[j] for l in lgrid])
+              for k in ADAPTIVE for j, s in ((0, "fdr"), (1, "pow"))}
+
     kgrid = sorted({int(n.split("@")[0].split(":")[1]) for n in meta.files if n.startswith("knn:")})
     sens = {kk: pooled("knn:%d@%d" % (kk, ell["knn"])).mean(0) for kk in kgrid}
 
@@ -130,6 +135,7 @@ for val in values:
              knn_sens_k=np.array(kgrid),
              knn_sens_pow=np.array([sens[kk][1] for kk in kgrid]),
              knn_sens_fdr=np.array([sens[kk][0] for kk in kgrid]),
+             ell_grid=np.array(lgrid), **by_ell,
              **{f: meta[f] for f in ("ntr", "pi0", "n_alt", "q", "n", "nunits", "ncp", "M", "B")
                 if f in meta.files})
     print("   saved %s\n" % fn)
