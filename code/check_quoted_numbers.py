@@ -61,9 +61,9 @@ for i, q in enumerate([0.410, 0.438, 0.475]):
     check("Fig2C sym power col %d" % i, cx["sym_cp"][i], q)
 for i, q in enumerate([0.034, 0.046, 0.032]):
     check("Fig2 eavg - e1 (exact) col %d" % i, cx["eavg_x_cp"][i] - cx["e1_x_cp"][i], q)
-intex("\\addD{$0.448$, $0.471$}, $0.495$")
+intex("$0.448$, $0.471$, $0.495$")
 intex("$0.410$, $0.438$, $0.475$")
-intex("\\addD{$+0.034$, $+0.046$},\n$+0.032$")
+intex("$+0.034$, $+0.046$,\n$+0.032$")
 cx10 = None   # filled below with all ten training sizes
 
 
@@ -94,7 +94,7 @@ check("mean calibrated size", cells.mean(), 0.050)
 check("min calibrated size", cells.min(), 0.042)
 check("max calibrated size", cells.max(), 0.060)
 intex("across all $64$ configuration")
-intex("(range $0.042$--\\delD{$0.059$}\\addD{$0.060$})")
+intex("(range $0.042$--$0.060$)")
 
 # ---------------------------------------------------------------- Fig 3 / §6.2
 a = np.load("results_shape_sparse_dense.npz")
@@ -169,7 +169,7 @@ intex("$+0.017$ at $\\rho=0.2$ to $+0.042$ and $+0.063$")
 intex("$+0.018$, $+0.041$, $+0.059$")
 intex("$+0.012$, $+0.033$ and $+0.049$")
 intex("$+0.021$ to $+0.040$")
-intex("paired $t\\ge4.7$ in every known-$F$ cell, \\delD{$t\\ge3.3$}\\addD{$t\\ge4.6$} under estimation")
+intex("paired $t\\ge4.7$ in every known-$F$ cell, $t\\ge4.6$ under estimation")
 # Fisher-base remark across all configurations
 # known F from the plug-in keys, N_tr = 4n from the exact components
 SZ = (("cpw_", "_x"), ("cpw_known_", ""))
@@ -260,7 +260,7 @@ top = np.argsort(-E)[:2]
 ok = list(dates[top]) == ["2016-06-24", "2022-12-20"] and 1e19 < E[top[0]] < 1e21 and 1e17 < E[top[1]] < 1e18
 fails += (not ok)
 print("  %-62s %s %s" % ("largest e-values: Brexit ~1e20, BoJ 2022-12-20 ~5e17", list(dates[top]), "PASS" if ok else "FAIL"))
-intex("$0.01$--\\delD{$0.04$}\\addD{$0.05$} of whichever is winning")
+intex("$0.01$--$0.05$ of whichever is winning")
 covid = {str(dt): float(e) for dt, e in zip(dates, E) if str(dt) in ("2020-03-18", "2020-03-20", "2020-03-23")}
 ok = 4.5e12 <= min(covid.values()) and max(covid.values()) < 2e14   # 5.0e12 prints as 5 x 10^12
 fails += (not ok)
@@ -330,8 +330,11 @@ check("largest realized FDR in Table 1", mx, 0.108)
 mse_f = max(float(src(nn, k)[k + "_se_fdr"]) for nn in cf for k in table)
 mse_p = max(float(src(nn, k)[k + "_se_pow"]) for nn in cf for k in table)
 claim("Table 1 standard errors at most 0.012 (FDR) and 0.018 (power)", mse_f <= 0.012 and mse_p <= 0.018)
-intex("\\addD{\\textbf{0.642}} & \\addD{\\textbf{0.648}} & \\addD{\\textbf{0.666}}")
-intex("gaps of \\delD{$10.6$ and $8.4$}\\addD{$11.0$ and $8.7$}")
+xs = max(float(src(nn, k)[k + "_fdr"]) - 0.10 - float(src(nn, k)[k + "_se_fdr"]) for nn in cf for k in table)
+claim("no Table 1 FDR exceeds 0.10 by more than one MC standard error (max excess over 0.10+SE %.4f)" % xs, xs <= 0)
+intex("no\nestimated FDR exceeds the target of $0.10$ by more than one Monte-Carlo standard error; the largest\nestimate is $0.108$")
+intex("\\textbf{0.642} & \\textbf{0.648} & \\textbf{0.666}")
+intex("gaps of $11.0$ and $8.7$")
 ok = all(int(cf[nn]["ell_oneclass"]) == nn // 2 and int(cf[nn]["ell_adadetect"]) == nn // 2 for nn in cf)
 fails += (not ok)
 print("  %-62s %s" % ("balanced split l = N_tr/2 for every conformal method", "PASS" if ok else "FAIL"))
@@ -380,8 +383,8 @@ for k, lo, hi in (("single", 0.046, 0.054), ("fisher", 0.046, 0.054), ("bonf", 0
           bool(np.all((np.round(v, 3) >= lo) & (np.round(v, 3) <= hi))))
 claim("Fig 2A: naive size e-avg (exact) 0.001 at every N_tr", bool(np.all(np.round(c6["eavg_x_ns"], 3) == 0.001)))
 intex("between $0.046$ and $0.054$ at every training size")
-intex("\\addD{($0.014$ to\n$0.020$)}")
-intex("\\addD{($0.008$ to $0.012$)}")
+intex("($0.014$ to\n$0.020$)")
+intex("($0.008$ to $0.012$)")
 cs = np.stack([c6[X(k) + "_cs"] for k in ("single", "pmerge", "bonf", "fisher", "sym", "eavg", "e1", "chi2")])
 claim("Fig 2B: every calibrated size in [0.042, 0.061] at every N_tr", bool(np.all((cs >= 0.042) & (cs <= 0.061))))
 for k in ("chi2", "sym", "single", "fisher"):
@@ -402,7 +405,7 @@ claim("§7.1: p-merge excess within two SEs from 5n on except at 6n and 7n",
       bool(np.all(z[[1, 4, 5, 6, 7, 8]] < 2) and np.all(z[[2, 3]] >= 2)))
 claim("Fig 4B: p-merge within two SEs from 8n on", bool(np.all(z[4:] < 2)))
 claim("§7.1: no p-merge excess at known F", bool(s6["cal_pmerge_x_fdr"][-1] <= 0.095))
-intex("$p$-merge realizes \\delD{$0.137$}\\addD{$0.152$} at $\\Ntr=4n$, \\delD{three}\\addD{five} standard errors")
+intex("$p$-merge realizes $0.152$ at $\\Ntr=4n$, five standard errors")
 intex("$0.102$ to $0.126$")
 # naive screen on exact components
 nfs = s6["naive_single_x_fdr"]
@@ -426,7 +429,7 @@ for k, q in (("bonf_x", 0.579), ("eavg_x", 0.576), ("single_x", 0.397), ("sym", 
 for k, q in (("bonf", 0.642), ("eavg", 0.619), ("single", 0.474), ("sym", 0.353), ("chi2", 0.349)):
     check("§7.1: screen power at known F, %s" % k, s6["cal_%s_pow" % k][-1], q)
 check("Appendix B: screen, e-avg - sym at 4n (exact)", s6["cal_eavg_x_pow"][0] - s6["cal_sym_pow"][0], 0.252)
-intex("\\addD{$0.579$ and $0.576$ against $0.397$}, $0.320$ and $0.240$")
+intex("$0.579$ and $0.576$ against $0.397$, $0.320$ and $0.240$")
 
 print("§7.2 which combiner, twenty settings (Figures 2 and 4, ten training sizes each, exact components)")
 P = {k: np.concatenate([c6[k + "_x_cp"], s6["cal_%s_x_pow" % k]]) for k in ("pmerge", "bonf", "eavg")}
@@ -441,7 +444,7 @@ claim("e-avg second in 13 and first in 7 of the twenty, never last",
 sl = np.argmax(np.stack([s6["cal_%s_x_pow" % k] for k in ("pmerge", "bonf", "eavg")]), axis=0)
 claim("Bonferroni leads the screen at 6n and from 8n on", list(np.flatnonzero(sl == 1)) == [2] + list(range(4, 10)))
 intex("thirteen of the twenty\nsettings and first in the remaining seven")
-intex("\\delD{$0.040$, against $0.076$}\\addD{$0.023$, against $0.067$}")
+intex("$0.023$, against $0.067$")
 
 print("Appendix B, Table B.1 (results_estimation_grid_*_exact.npz)")
 G = {d: np.load("results_estimation_grid_%s_exact.npz" % d) for d in ("two", "one", "all")}
@@ -545,7 +548,7 @@ pr = np.exp(lc[None, :] + np.arange(kc + 1)[None, :] * np.log(u)[:, None]
             + (Bc - np.arange(kc + 1))[None, :] * np.log1p(-u)[:, None]).sum(1)
 f2 = 2 * pr * (1 - pr)
 check("two independent calibrations alone, null disagreement %", 100 * float(((f2[1:] + f2[:-1]) / 2 * np.diff(u)).sum()), 0.55, 2)
-intex("\\addD{$2.9\\%$} of observations")
+intex("$2.9\\%$ of observations")
 intex("fall to $1.0\\%$,\n$1.8\\%$, $0.5\\%$ and $0.4\\%$")
 intex("disagree on about $0.55\\%$ of null observations at $B=1999$. The two sources do not add")
 intex("four figures at twelve orderings become $3.3\\%$, $6.2\\%$, $1.4\\%$ and $1.3\\%$")
@@ -601,7 +604,9 @@ intex("the centering point $\\mut_0$ be the known mean, $\\mut_0=\\mut$, when th
 intex("$\\mathbf u^\\sigma=\\mathrm{chol}(P_\\sigma AP_\\sigma^\\top)^{-1}P_\\sigma(\\X-\\mut_0)$")
 intex("so in the\nunregularized case the two coincide after calibration")
 intex("each classifier is trained on the calibration and test points in a\ncanonical (lexicographic) order")
-intex("reaches \\delD{$0.235$}\\addD{$0.218$}")
+intex("reaches $0.218$")
+intex("$\\mathbf v=\\X-\\mut_0$ the\ncentered vector, $\\mathbf v^\\top(\\hat\\Sig+\\lambda I)^{-1}\\mathbf v$")
+intex("an empirical pattern rather\nthan a consequence of the model")
 # the AdaDetect random-forest entries before the canonical order (archives of Sep 2026, same draws)
 old_rf = {"ntr_400": 0.0050, "ntr_1000": 0.11650, "ntr_2000": 0.2350,
           "pi0_80": 0.852375, "pi0_90": 0.46975, "pi0_95": 0.1270}
@@ -639,9 +644,10 @@ import os
 sp = os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), "supplementary.tex") if tex is not None else ""
 if os.path.exists(sp):
     stex = open(sp).read()
-    for t in ("raises its power from \\addD{$0.561$ to $0.851$}", "\\addD{$0.028$ in place of $0.120$}",
-              "AdaDetect, random forest       & \\addD{0.851} & \\addD{0.485} & \\addD{0.120}",
-              "the largest\nrealized value being $0.098$; standard errors are at most $0.011$ on the FDR and $0.022$ on the\npowers",
+    for t in ("raises its power from $0.561$ to $0.851$", "$0.028$ in place of $0.120$",
+              "No estimated FDR exceeds the target of\n$0.10$, the largest being $0.098$",
+              "AdaDetect, random forest       & 0.851 & 0.485 & 0.120",
+              "standard errors are at most $0.011$ on the FDR and $0.022$ on the\npowers",
               "by at most $0.017$\nin power"):
         claim("supplement contains %r" % t[:40], t in stex)
 
